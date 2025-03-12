@@ -3,7 +3,7 @@
 set -eu
 
 CI_ROOT=$(pwd)
-ORG_NAME="GaloyMoney"
+ORG_NAME="blinkbitcoin"
 
 cat <<EOF > ${CI_ROOT}/gcloud-creds.json
 ${GOOGLE_CREDENTIALS}
