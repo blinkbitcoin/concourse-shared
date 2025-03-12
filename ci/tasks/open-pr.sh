@@ -9,7 +9,7 @@ pushd source-repo
 cat <<EOF >> ../body.md
 # Bump Shared Tasks
 
-This PR syncs in this repository, shared CI tasks from [concourse-shared](https://github.com/GaloyMoney/concourse-shared).
+This PR syncs in this repository, shared CI tasks from [concourse-shared](https://github.com/blinkbitcoin/concourse-shared).
 EOF
 
 gh pr close ${PR_BRANCH} || true
