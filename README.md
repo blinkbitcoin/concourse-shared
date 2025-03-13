@@ -5,11 +5,11 @@
 1. Clone and get into the repository:
 
 ```
-gh repo clone GaloyMoney/concourse-shared
+gh repo clone blinkbitcoin/concourse-shared
 cd concourse-shared
 ```
 
-2. Edit `ci/values.yml` and under `src_repos`, add the new repository. The key name for the repository must be the name of the repository as on GitHub under GaloyMoney organization.
+2. Edit `ci/values.yml` and under `src_repos`, add the new repository. The key name for the repository must be the name of the repository as on GitHub under blinkbitcoin organization.
    This file contains many feature flags according to which the Pull Request will be created with shared tasks.
 3. Push the change on the CI.
 
