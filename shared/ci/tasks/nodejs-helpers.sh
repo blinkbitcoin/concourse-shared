@@ -14,7 +14,7 @@ function unpack_deps() {
   REPO_PATH=${REPO_PATH:-repo}
 
   if [[ -f ${REPO_PATH}/yarn.lock ]]; then
-    echo "Unpacking nodejs deps... (yarn)"
+    echo "    --> Unpacking nodejs deps... (yarn)"
 
     pushd ${REPO_PATH} > /dev/null
 
@@ -26,11 +26,11 @@ function unpack_deps() {
       exit 1;
     fi
 
-    echo "Done!"
+    echo "    --> Done!"
 
     popd
   elif [[ -f ${REPO_PATH}/pnpm-lock.yaml ]]; then
-    echo "Unpacking nodejs deps... (pnpm)"
+    echo "    --> Unpacking nodejs deps... (pnpm)"
 
     pushd ${REPO_PATH} > /dev/null
 
@@ -42,10 +42,10 @@ function unpack_deps() {
       exit 1;
     fi
 
-    echo "Done!"
+    echo "    --> Done!"
     popd
   else
-    echo "Skipping unpack deps"
+    echo "    --> Skipping unpack deps"
   fi
 }
 
@@ -55,12 +55,12 @@ function check_code() {
     yarn code:check
     echo "Done!"
   elif [[ -f ${REPO_PATH}/pnpm-lock.yaml ]]; then
-    echo "Checking code... (pnpm)"
+    echo "    --> Checking code... (pnpm)"
     pushd ${REPO_PATH} > /dev/null
     pnpm code:check
-    echo "Done!"
+    echo "    --> Done!"
     popd
   else 
-    echo "Skipping check code"
+    echo "    --> Skipping check code"
   fi
 }

@@ -454,7 +454,7 @@ type: git
 source:
 #@ if pckgMgr == "yarn":
   paths: [yarn.lock]
-#@ elif pckgMgr == "npm":
+#@ elif pckgMgr == "pnpm":
   paths: [pnpm-lock.yaml]
 #@ else:
 #@     assert.fail("unsupported package manager: " + pckgMgr)
