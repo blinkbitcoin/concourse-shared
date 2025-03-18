@@ -448,11 +448,17 @@ source:
   repository: #@ public_docker_registry() + "/" + data.values.gh_repository if publicRepo else private_docker_registry() + "/" + data.values.gh_repository
 #@ end
 
-#@ def nodejs_deps_resource(webhook = False):
+#@ def nodejs_deps_resource(webhook = False, pckgMgr = "yarn"):
 name: deps
 type: git
 source:
+#@ if pckgMgr == "yarn":
   paths: [yarn.lock]
+#@ elif pckgMgr == "pnpm":
+  paths: [pnpm-lock.yaml]
+#@ else:
+#@     assert.fail("unsupported package manager: " + pckgMgr)
+#@ end
   uri: #@ data.values.git_uri
   branch: #@ data.values.git_branch
   private_key: #@ data.values.github_private_key
