@@ -1,5 +1,5 @@
 #@ load("@ytt:data", "data")
-
+#@ load("@ytt:assert", "assert")
 #@ def public_docker_registry():
 #@  return "us.gcr.io/galoy-org"
 #@ end

@@ -34,7 +34,7 @@ function unpack_deps() {
 
     pushd ${REPO_PATH} > /dev/null
 
-    tar -zxvf ../bundled-deps/bundled-deps-*.tgz ./node_modules/ ./pnpm-lock.yaml ./.pnpm-store > /dev/null
+    tar -zxvf ../bundled-deps/bundled-deps-*.tgz ./node_modules/ ./pnpm-lock.yaml > /dev/null
 
     if [[ "$(git status -s -uno)" != "" ]]; then
       echo "Extracting deps has created a diff - deps are not in sync"
