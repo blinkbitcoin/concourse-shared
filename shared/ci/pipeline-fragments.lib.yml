@@ -143,7 +143,7 @@ plan:
 #@ if pckgMgr == "yarn":
       path: pipeline-tasks/ci/vendor/tasks/nodejs-cache-yarn-deps.sh
 #@ elif pckgMgr == "pnpm":
-      path: pipeline-tasks/ci/vendor/tasks/cache-pnpm-deps.sh
+      path: pipeline-tasks/ci/vendor/tasks/nodejs-cache-pnpm-deps.sh
 #@ else:
 #@     assert.fail("unsupported package manager: " + pckgMgr)
 #@ end
