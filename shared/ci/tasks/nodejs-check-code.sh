@@ -11,6 +11,4 @@ export REPO_PATH=repo
 
 unpack_deps
 
-pushd repo
-
-make check-code
+check_code
