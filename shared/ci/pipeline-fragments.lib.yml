@@ -122,7 +122,7 @@ plan:
 on_failure: #@ slack_failure_notification()
 #@ end
 
-#@ def install_yarn_deps():
+#@ def install_nodejs_deps(pckgMgr = "yarn"):
 name: install-deps
 plan:
 - in_parallel:
@@ -140,7 +140,13 @@ plan:
     outputs:
     - name: bundled-deps
     run:
+#@ if pckgMgr == "yarn":
       path: pipeline-tasks/ci/vendor/tasks/nodejs-cache-yarn-deps.sh
+#@ elif pckgMgr == "pnpm":
+      path: pipeline-tasks/ci/vendor/tasks/cache-pnpm-deps.sh
+#@ else:
+#@     assert.fail("unsupported package manager: " + pckgMgr)
+#@ end
 - put: bundled-deps
   params:
     file: bundled-deps/bundled-deps-*.tgz
