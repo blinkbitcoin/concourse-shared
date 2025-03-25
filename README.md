@@ -1,4 +1,8 @@
-## Contains shared CI tasks synced across repositories.
+# concourse-shared
+This repo contains:
+* shared CI tasks [synced](https://ci.blink.sv/teams/dev/pipelines/blink-concourse-shared?group=bump-shared-files) across repositories. 
+* It also contains the [CI pipeline](https://ci.blink.sv/teams/dev/pipelines/blink-concourse-shared?group=images) for image creation needed by CI
+* and a backup [pipeline](https://ci.blink.sv/teams/dev/pipelines/blink-concourse-shared?group=backups) to backup all repositories of the blinkbitcoin organization and push them to the [backup bucket](https://console.cloud.google.com/storage/browser/blink-backups).
 
 ### Steps for adding in a new repository:
 
@@ -23,7 +27,7 @@ This would, in turn create a new job under the concourse-shared pipeline and whe
 
 ### Shared Folder Details (shared/\*\*)
 
-1. `actions` folder - Gets synced to `.github/workflows/` folder
+1. `actions` folder - Gets synced to `.github/workflows/vendor` folder
 2. `ci/tasks` folder - Get synced to `ci/vendor` folder
 
 ### Feature Flags
@@ -41,14 +45,16 @@ Files whose names don't start with them are treated as common and synced to all.
 #### nodejs
 
 - GH Actions:
-  - Check Code (`make check-code` after `yarn install`)
-  - Audit (`make audit` after `yarn install`)
+  - only supports pnpm, no more yarn
+  - Check Code (`pnpm code:check` after `pnpm install`)
+  - Audit (`pnpm audit --prod --audit-level=high` after `pnpm install --frozen-lockfile`)
 
 - Concourse CI:
+  - supports yarn and pnpm
   - Helpers (`unpack_deps` for caching node_modules)
-  - Install Deps (`yarn install`)
-  - Check Code (`make check-code`)
-  - Audit (`make audit`)
+  - Install Deps (autodetects pckMgr and then `yarn install` or `pnpm install`)
+  - Check Code (autodetects pckMgr and then  `yarn code:check` or `pnpm code:check`)
+  - Audit (autodetects pckMgr and then `yarn audit --groups dependencies --level high` or `pnpm audit --prod --audit-level=high`)
 
 #### rust
 

@@ -17,7 +17,7 @@ staging_bucket_name: galoy-staging-backups
 
 git_org_uri: git@github.com:blinkbitcoin
 pr_branch: bump-shared-tasks
-source_repo_branch: kn/initial_pipeline
+source_repo_branch: main
 
 src_repos:
   mavapay-client: ["nodejs"]
