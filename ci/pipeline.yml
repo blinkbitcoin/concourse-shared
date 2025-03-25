@@ -26,12 +26,12 @@ groups:
 #@ for repo in data.values.src_repos:
   - #@ "bump-shared-files-in-" + repo
 #@ end
-#! - name: images
-#!   jobs:
-#!   - build-rust-concourse-image
-#!   - build-nodejs-concourse-image
-#!   - build-wincross-pipeline-image
-#!   - build-release-pipeline-image
+- name: images
+  jobs:
+  - build-rust-concourse-image
+  - build-nodejs-concourse-image
+  - build-wincross-pipeline-image
+  - build-release-pipeline-image
 - name: backups
   jobs:
   - backup-org-to-gcp
@@ -62,43 +62,43 @@ config:
 #@ end
 
 jobs:
-#! - name: build-rust-concourse-image
-#!   serial: true
-#!   plan:
-#!   - {get: rust-image-def, trigger: true}
-#!   - #@ build_task("rust-image-def", "rust-image-def/images/rust-concourse")
-#!   - put: rust-image
-#!     params:
-#!       image: image/image.tar
+- name: build-rust-concourse-image
+  serial: true
+  plan:
+  - {get: rust-image-def, trigger: true}
+  - #@ build_task("rust-image-def", "rust-image-def/images/rust-concourse")
+  - put: rust-image
+    params:
+      image: image/image.tar
 
-#! - name: build-nodejs-concourse-image
-#!   serial: true
-#!   plan:
-#!   - {get: nodejs-image-def, trigger: true}
-#!   - #@ build_task("nodejs-image-def", "nodejs-image-def/images/nodejs-concourse")
-#!   - put: nodejs-image
-#!     params:
-#!       image: image/image.tar
+- name: build-nodejs-concourse-image
+  serial: true
+  plan:
+  - {get: nodejs-image-def, trigger: true}
+  - #@ build_task("nodejs-image-def", "nodejs-image-def/images/nodejs-concourse")
+  - put: nodejs-image
+    params:
+      image: image/image.tar
 
-#! - name: build-release-pipeline-image
-#!   serial: true
-#!   plan:
-#!   - get: release-pipeline-image-def
-#!     trigger: true
-#!   - #@ build_task("release-pipeline-image-def", "release-pipeline-image-def/images/release")
-#!   - put: release-pipeline-image
-#!     params:
-#!       image: image/image.tar
+- name: build-release-pipeline-image
+  serial: true
+  plan:
+  - get: release-pipeline-image-def
+    trigger: true
+  - #@ build_task("release-pipeline-image-def", "release-pipeline-image-def/images/release")
+  - put: release-pipeline-image
+    params:
+      image: image/image.tar
 
-#! - name: build-wincross-pipeline-image
-#!   serial: true
-#!   plan:
-#!   - get: wincross-pipeline-image-def
-#!     trigger: true
-#!   - #@ build_task("wincross-pipeline-image-def", "wincross-pipeline-image-def/images/wincross")
-#!   - put: wincross-pipeline-image
-#!     params:
-#!       image: image/image.tar
+- name: build-wincross-pipeline-image
+  serial: true
+  plan:
+  - get: wincross-pipeline-image-def
+    trigger: true
+  - #@ build_task("wincross-pipeline-image-def", "wincross-pipeline-image-def/images/wincross")
+  - put: wincross-pipeline-image
+    params:
+      image: image/image.tar
 
 
 #@ for repo in data.values.src_repos:
@@ -208,69 +208,69 @@ resources:
     branch: #@ data.values.source_repo_branch
 #@ end
 
-#! - name: nodejs-image-def
-#!   type: git
-#!   source:
-#!     paths: [images/nodejs-concourse/Dockerfile]
-#!     uri: #@ data.values.git_uri
-#!     branch: #@ data.values.git_branch
-#!     private_key: #@ data.values.github_private_key
+- name: nodejs-image-def
+  type: git
+  source:
+    paths: [images/nodejs-concourse/Dockerfile]
+    uri: #@ data.values.git_uri
+    branch: #@ data.values.git_branch
+    private_key: #@ data.values.github_private_key
 
-#! - name: nodejs-image
-#!   type: registry-image
-#!   source:
-#!     tag: latest
-#!     username: #@ data.values.docker_registry_user
-#!     password: #@ data.values.docker_registry_password
-#!     repository: #@ data.values.docker_registry + "/nodejs-concourse"
+- name: nodejs-image
+  type: registry-image
+  source:
+    tag: latest
+    username: #@ data.values.docker_registry_user
+    password: #@ data.values.docker_registry_password
+    repository: #@ data.values.docker_registry + "/nodejs-concourse"
 
-#! - name: rust-image-def
-#!   type: git
-#!   source:
-#!     paths: [images/rust-concourse/Dockerfile]
-#!     uri: #@ data.values.git_uri
-#!     branch: #@ data.values.git_branch
-#!     private_key: #@ data.values.github_private_key
+- name: rust-image-def
+  type: git
+  source:
+    paths: [images/rust-concourse/Dockerfile]
+    uri: #@ data.values.git_uri
+    branch: #@ data.values.git_branch
+    private_key: #@ data.values.github_private_key
 
-#! - name: rust-image
-#!   type: registry-image
-#!   source:
-#!     tag: latest
-#!     username: #@ data.values.docker_registry_user
-#!     password: #@ data.values.docker_registry_password
-#!     repository: #@ data.values.docker_registry + "/rust-concourse"
+- name: rust-image
+  type: registry-image
+  source:
+    tag: latest
+    username: #@ data.values.docker_registry_user
+    password: #@ data.values.docker_registry_password
+    repository: #@ data.values.docker_registry + "/rust-concourse"
 
-#! - name: release-pipeline-image
-#!   type: registry-image
-#!   source:
-#!     tag: latest
-#!     username: #@ data.values.docker_registry_user
-#!     password: #@ data.values.docker_registry_password
-#!     repository: #@   data.values.docker_registry + "/release-pipeline"
+- name: release-pipeline-image
+  type: registry-image
+  source:
+    tag: latest
+    username: #@ data.values.docker_registry_user
+    password: #@ data.values.docker_registry_password
+    repository: #@   data.values.docker_registry + "/release-pipeline"
 
-#! - name: release-pipeline-image-def
-#!   type: git
-#!   source:
-#!     paths: [images/release/Dockerfile]
-#!     uri: #@ data.values.git_uri
-#!     branch: #@ data.values.git_branch
-#!     private_key: #@ data.values.github_private_key
+- name: release-pipeline-image-def
+  type: git
+  source:
+    paths: [images/release/Dockerfile]
+    uri: #@ data.values.git_uri
+    branch: #@ data.values.git_branch
+    private_key: #@ data.values.github_private_key
 
-#! - name: wincross-pipeline-image
-#!   type: registry-image
-#!   source:
-#!     tag: latest
-#!     username: #@ data.values.docker_registry_user
-#!     password: #@ data.values.docker_registry_password
-#!     repository: #@   data.values.docker_registry + "/wincross-rust"
+- name: wincross-pipeline-image
+  type: registry-image
+  source:
+    tag: latest
+    username: #@ data.values.docker_registry_user
+    password: #@ data.values.docker_registry_password
+    repository: #@   data.values.docker_registry + "/wincross-rust"
 
-#! - name: wincross-pipeline-image-def
-#!   type: git
-#!   source:
-#!     paths: [images/wincross/Dockerfile]
-#!     uri: #@ data.values.git_uri
-#!     branch: #@ data.values.git_branch
-#!     private_key: #@ data.values.github_private_key
+- name: wincross-pipeline-image-def
+  type: git
+  source:
+    paths: [images/wincross/Dockerfile]
+    uri: #@ data.values.git_uri
+    branch: #@ data.values.git_branch
+    private_key: #@ data.values.github_private_key
 
 - name: every-day-trigger
   type: time
