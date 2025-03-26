@@ -6,7 +6,7 @@ git_branch: main
 github_private_key: ((github-blinkbitcoin.private_key))
 github_token: ((github-blinkbitcoin.api_token))
 github_app_id: ((github-blinkbitcoin.github_app_id))
-github_app_private_key: ((github-blinkbitcoinb.github_app_private_key))
+github_app_private_key: ((github-blinkbitcoin.github_app_private_key))
 
 docker_registry: us.gcr.io/galoy-org
 docker_registry_user: ((docker-creds.username))
@@ -20,16 +20,4 @@ pr_branch: bump-shared-tasks
 source_repo_branch: main
 
 src_repos:
-  galoy: ["nodejs", "docker", "chart"]
-  stablesats-rs: ["rust", "docker", "chart"]
-  proof-of-sats: ["nodejs", "docker", "chart"]
-  galoy-cli: ["rust"]
-  sqlxmq-executor: ["rust", "docker"]
-  bria: ["rust", "docker", "chart"]
-  cala: ["rust", "docker"]
-  cala-enterprise: ["rust", "docker"]
-  lana-bank: ["rust", "docker"]
-  galoy-mobile: ["nodejs"]
-  blink-circles: ["nodejs", "docker", "chart"]
-  blink-fiat: ["nodejs", "docker", "chart"]
-  blink-kyc: ["nodejs", "docker", "chart"]
+  mavapay-client: ["nodejs"]

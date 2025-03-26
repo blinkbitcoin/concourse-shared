@@ -23,8 +23,10 @@ vendir sync
 
 pushd vendor/tasks
 
-mv nodejs-helpers.sh helpers.sh || true
-mv rust-helpers.sh helpers.sh || true
+# Those two changes are very counterintuitive and are therefore commented for now.
+# Can be removed when we're sure they don't exist for a good reason.
+# mv nodejs-helpers.sh helpers.sh || true
+# mv rust-helpers.sh helpers.sh || true
 
 popd
 
