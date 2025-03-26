@@ -145,7 +145,6 @@ jobs:
         path: pipeline-tasks/ci/tasks/open-pr.sh
 #@ end
 
-
 - name: backup-org-to-gcp
   plan:
   - in_parallel:
