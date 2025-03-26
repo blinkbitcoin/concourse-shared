@@ -145,7 +145,6 @@ jobs:
         path: pipeline-tasks/ci/tasks/open-pr.sh
 #@ end
 
-#! This is failing in the galoy-org version of the pipeline. Not sure what it's doing so deactivating for now.
 
 - name: backup-org-to-gcp
   plan:
