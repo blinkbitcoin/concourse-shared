@@ -1,6 +1,6 @@
 #!/bin/bash
 
-#set -eu
+set -eu
 
 CI_ROOT=$(pwd)
 ORG_NAME="blinkbitcoin"
