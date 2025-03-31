@@ -39,8 +39,8 @@ RUN curl -LO https://dl.k8s.io/release/$KUBECTL_VERSION/bin/linux/amd64/kubectl 
 RUN helm repo add bitnami https://charts.bitnami.com/bitnami
 
 # Setup Committer information
-RUN git config --global user.email "bot@galoy.io" \
-  && git config --global user.name "CI Bot"
+RUN git config --global user.email "202112752+blinkbitcoinbot@users.noreply.github.com" \
+  && git config --global user.name "CI blinkbitcoinbot"
 
 RUN pip install --upgrade bump2version
 
