@@ -6,7 +6,7 @@ export GH_TOKEN="$(ghtoken generate -b "${GH_APP_PRIVATE_KEY}" -i "${GH_APP_ID}"
 
 pushd source-repo
 
-# For forked repos (many are forked from galoy-money) we need to explicitely specify the repo-name below
+# For forked repos (many are forked from GaloyMoney) we need to explicitly specify the REPO_NAME below
 # So let's calculate here
 
 REPO_NAME=$(basename $(git config --get remote.origin.url) .git)
