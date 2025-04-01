@@ -21,3 +21,4 @@ source_repo_branch: main
 
 src_repos:
   mavapay-client: ["nodejs"]
+  blink-nostr: ["nodejs"]
