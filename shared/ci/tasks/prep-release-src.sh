@@ -11,6 +11,7 @@ pushd repo
 
 # First time
 if [[ $(cat ../version/version) == "0.0.0" ]]; then
+  echo "  --> creating changelog for all commits"
   git cliff --config ../pipeline-tasks/ci/vendor/config/git-cliff.toml > ../artifacts/gh-release-notes.md
 
 # Fetch changelog from last ref
@@ -19,8 +20,8 @@ else
   export prev_ref
   new_ref=$(git rev-parse HEAD)
   export new_ref
-
-  git cliff --config ../pipeline-tasks/ci/vendor/config/git-cliff.toml "$prev_ref..$new_ref" > ../artifacts/gh-release-notes.md
+  echo "  --> creating changelog for $prev_ref..$new_ref"
+  git cliff --config ../pipeline-tasks/ci/vendor/config/git-cliff.toml $prev_ref..$new_ref > ../artifacts/gh-release-notes.md
 fi
 
 popd

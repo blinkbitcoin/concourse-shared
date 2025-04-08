@@ -576,5 +576,5 @@ source:
 name: npm
 type: docker-image
 source:
-  repository: timotto/concourse-npm-resource
+  repository: k9ert/concourse-npm-resource
 #@ end
