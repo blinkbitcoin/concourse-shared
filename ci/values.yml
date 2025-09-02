@@ -23,3 +23,6 @@ src_repos:
   mavapay-client: ["nodejs"]
   blink-client: ["nodejs"]
   blink-nostr: ["nodejs","docker","chart"]
+  blink-fiat: ["nodejs", "docker", "chart"]
+  blink-circles: ["nodejs"]
+  blink-card: ["rust", "docker", "chart"]

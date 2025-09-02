@@ -1,0 +1,643 @@
+groups:
+- name: bump-shared-files
+  jobs:
+  - bump-shared-files-in-mavapay-client
+  - bump-shared-files-in-blink-client
+  - bump-shared-files-in-blink-nostr
+  - bump-shared-files-in-blink-fiat
+  - bump-shared-files-in-blink-circles
+  - bump-shared-files-in-blink-card
+- name: images
+  jobs:
+  - build-rust-concourse-image
+  - build-nodejs-concourse-image
+  - build-wincross-pipeline-image
+  - build-release-pipeline-image
+- name: backups
+  jobs:
+  - backup-org-to-gcp
+jobs:
+- name: build-rust-concourse-image
+  serial: true
+  plan:
+  - get: rust-image-def
+    trigger: true
+  - task: build
+    config:
+      platform: linux
+      image_resource:
+        type: registry-image
+        source:
+          repository: gcr.io/kaniko-project/executor
+          tag: debug
+      inputs:
+      - name: rust-image-def
+      outputs:
+      - name: image
+      run:
+        path: /kaniko/executor
+        args:
+        - --dockerfile=Dockerfile
+        - --context=rust-image-def/images/rust-concourse
+        - --use-new-run
+        - --single-snapshot
+        - --cache=false
+        - --no-push
+        - --tar-path=image/image.tar
+  - put: rust-image
+    params:
+      image: image/image.tar
+- name: build-nodejs-concourse-image
+  serial: true
+  plan:
+  - get: nodejs-image-def
+    trigger: true
+  - task: build
+    config:
+      platform: linux
+      image_resource:
+        type: registry-image
+        source:
+          repository: gcr.io/kaniko-project/executor
+          tag: debug
+      inputs:
+      - name: nodejs-image-def
+      outputs:
+      - name: image
+      run:
+        path: /kaniko/executor
+        args:
+        - --dockerfile=Dockerfile
+        - --context=nodejs-image-def/images/nodejs-concourse
+        - --use-new-run
+        - --single-snapshot
+        - --cache=false
+        - --no-push
+        - --tar-path=image/image.tar
+  - put: nodejs-image
+    params:
+      image: image/image.tar
+- name: build-release-pipeline-image
+  serial: true
+  plan:
+  - get: release-pipeline-image-def
+    trigger: true
+  - task: build
+    config:
+      platform: linux
+      image_resource:
+        type: registry-image
+        source:
+          repository: gcr.io/kaniko-project/executor
+          tag: debug
+      inputs:
+      - name: release-pipeline-image-def
+      outputs:
+      - name: image
+      run:
+        path: /kaniko/executor
+        args:
+        - --dockerfile=Dockerfile
+        - --context=release-pipeline-image-def/images/release
+        - --use-new-run
+        - --single-snapshot
+        - --cache=false
+        - --no-push
+        - --tar-path=image/image.tar
+  - put: release-pipeline-image
+    params:
+      image: image/image.tar
+- name: build-wincross-pipeline-image
+  serial: true
+  plan:
+  - get: wincross-pipeline-image-def
+    trigger: true
+  - task: build
+    config:
+      platform: linux
+      image_resource:
+        type: registry-image
+        source:
+          repository: gcr.io/kaniko-project/executor
+          tag: debug
+      inputs:
+      - name: wincross-pipeline-image-def
+      outputs:
+      - name: image
+      run:
+        path: /kaniko/executor
+        args:
+        - --dockerfile=Dockerfile
+        - --context=wincross-pipeline-image-def/images/wincross
+        - --use-new-run
+        - --single-snapshot
+        - --cache=false
+        - --no-push
+        - --tar-path=image/image.tar
+  - put: wincross-pipeline-image
+    params:
+      image: image/image.tar
+- name: bump-shared-files-in-mavapay-client
+  plan:
+  - in_parallel:
+    - get: shared-files
+      trigger: true
+    - get: pipeline-tasks
+    - get: mavapay-client-repo
+  - task: bump-shared-files-mavapay-client
+    config:
+      platform: linux
+      image_resource:
+        type: registry-image
+        source:
+          username: ((docker-creds.username))
+          password: ((docker-creds.password))
+          repository: us.gcr.io/galoy-org/galoy-deployments-pipeline
+      inputs:
+      - name: shared-files
+        path: repo
+      - name: pipeline-tasks
+      - name: mavapay-client-repo
+        path: source-repo
+      outputs:
+      - name: source-repo
+      params:
+        FEATURES:
+        - nodejs
+      run:
+        path: pipeline-tasks/ci/tasks/bump-shared-files.sh
+  - put: mavapay-client-pr-branch
+    params:
+      repository: source-repo
+      force: true
+  - task: open-source-pr
+    config:
+      platform: linux
+      image_resource:
+        type: registry-image
+        source:
+          username: ((docker-creds.username))
+          password: ((docker-creds.password))
+          repository: us.gcr.io/galoy-org/galoy-deployments-pipeline
+      inputs:
+      - name: pipeline-tasks
+      - name: mavapay-client-repo
+        path: source-repo
+      params:
+        PR_BRANCH: bump-shared-tasks
+        BRANCH: main
+        GH_APP_ID: ((github-blinkbitcoin.github_app_id))
+        GH_APP_PRIVATE_KEY: ((github-blinkbitcoin.github_app_private_key))
+      run:
+        path: pipeline-tasks/ci/tasks/open-pr.sh
+- name: bump-shared-files-in-blink-client
+  plan:
+  - in_parallel:
+    - get: shared-files
+      trigger: true
+    - get: pipeline-tasks
+    - get: blink-client-repo
+  - task: bump-shared-files-blink-client
+    config:
+      platform: linux
+      image_resource:
+        type: registry-image
+        source:
+          username: ((docker-creds.username))
+          password: ((docker-creds.password))
+          repository: us.gcr.io/galoy-org/galoy-deployments-pipeline
+      inputs:
+      - name: shared-files
+        path: repo
+      - name: pipeline-tasks
+      - name: blink-client-repo
+        path: source-repo
+      outputs:
+      - name: source-repo
+      params:
+        FEATURES:
+        - nodejs
+      run:
+        path: pipeline-tasks/ci/tasks/bump-shared-files.sh
+  - put: blink-client-pr-branch
+    params:
+      repository: source-repo
+      force: true
+  - task: open-source-pr
+    config:
+      platform: linux
+      image_resource:
+        type: registry-image
+        source:
+          username: ((docker-creds.username))
+          password: ((docker-creds.password))
+          repository: us.gcr.io/galoy-org/galoy-deployments-pipeline
+      inputs:
+      - name: pipeline-tasks
+      - name: blink-client-repo
+        path: source-repo
+      params:
+        PR_BRANCH: bump-shared-tasks
+        BRANCH: main
+        GH_APP_ID: ((github-blinkbitcoin.github_app_id))
+        GH_APP_PRIVATE_KEY: ((github-blinkbitcoin.github_app_private_key))
+      run:
+        path: pipeline-tasks/ci/tasks/open-pr.sh
+- name: bump-shared-files-in-blink-nostr
+  plan:
+  - in_parallel:
+    - get: shared-files
+      trigger: true
+    - get: pipeline-tasks
+    - get: blink-nostr-repo
+  - task: bump-shared-files-blink-nostr
+    config:
+      platform: linux
+      image_resource:
+        type: registry-image
+        source:
+          username: ((docker-creds.username))
+          password: ((docker-creds.password))
+          repository: us.gcr.io/galoy-org/galoy-deployments-pipeline
+      inputs:
+      - name: shared-files
+        path: repo
+      - name: pipeline-tasks
+      - name: blink-nostr-repo
+        path: source-repo
+      outputs:
+      - name: source-repo
+      params:
+        FEATURES:
+        - nodejs
+        - docker
+        - chart
+      run:
+        path: pipeline-tasks/ci/tasks/bump-shared-files.sh
+  - put: blink-nostr-pr-branch
+    params:
+      repository: source-repo
+      force: true
+  - task: open-source-pr
+    config:
+      platform: linux
+      image_resource:
+        type: registry-image
+        source:
+          username: ((docker-creds.username))
+          password: ((docker-creds.password))
+          repository: us.gcr.io/galoy-org/galoy-deployments-pipeline
+      inputs:
+      - name: pipeline-tasks
+      - name: blink-nostr-repo
+        path: source-repo
+      params:
+        PR_BRANCH: bump-shared-tasks
+        BRANCH: main
+        GH_APP_ID: ((github-blinkbitcoin.github_app_id))
+        GH_APP_PRIVATE_KEY: ((github-blinkbitcoin.github_app_private_key))
+      run:
+        path: pipeline-tasks/ci/tasks/open-pr.sh
+- name: bump-shared-files-in-blink-fiat
+  plan:
+  - in_parallel:
+    - get: shared-files
+      trigger: true
+    - get: pipeline-tasks
+    - get: blink-fiat-repo
+  - task: bump-shared-files-blink-fiat
+    config:
+      platform: linux
+      image_resource:
+        type: registry-image
+        source:
+          username: ((docker-creds.username))
+          password: ((docker-creds.password))
+          repository: us.gcr.io/galoy-org/galoy-deployments-pipeline
+      inputs:
+      - name: shared-files
+        path: repo
+      - name: pipeline-tasks
+      - name: blink-fiat-repo
+        path: source-repo
+      outputs:
+      - name: source-repo
+      params:
+        FEATURES:
+        - nodejs
+        - docker
+        - chart
+      run:
+        path: pipeline-tasks/ci/tasks/bump-shared-files.sh
+  - put: blink-fiat-pr-branch
+    params:
+      repository: source-repo
+      force: true
+  - task: open-source-pr
+    config:
+      platform: linux
+      image_resource:
+        type: registry-image
+        source:
+          username: ((docker-creds.username))
+          password: ((docker-creds.password))
+          repository: us.gcr.io/galoy-org/galoy-deployments-pipeline
+      inputs:
+      - name: pipeline-tasks
+      - name: blink-fiat-repo
+        path: source-repo
+      params:
+        PR_BRANCH: bump-shared-tasks
+        BRANCH: main
+        GH_APP_ID: ((github-blinkbitcoin.github_app_id))
+        GH_APP_PRIVATE_KEY: ((github-blinkbitcoin.github_app_private_key))
+      run:
+        path: pipeline-tasks/ci/tasks/open-pr.sh
+- name: bump-shared-files-in-blink-circles
+  plan:
+  - in_parallel:
+    - get: shared-files
+      trigger: true
+    - get: pipeline-tasks
+    - get: blink-circles-repo
+  - task: bump-shared-files-blink-circles
+    config:
+      platform: linux
+      image_resource:
+        type: registry-image
+        source:
+          username: ((docker-creds.username))
+          password: ((docker-creds.password))
+          repository: us.gcr.io/galoy-org/galoy-deployments-pipeline
+      inputs:
+      - name: shared-files
+        path: repo
+      - name: pipeline-tasks
+      - name: blink-circles-repo
+        path: source-repo
+      outputs:
+      - name: source-repo
+      params:
+        FEATURES:
+        - nodejs
+      run:
+        path: pipeline-tasks/ci/tasks/bump-shared-files.sh
+  - put: blink-circles-pr-branch
+    params:
+      repository: source-repo
+      force: true
+  - task: open-source-pr
+    config:
+      platform: linux
+      image_resource:
+        type: registry-image
+        source:
+          username: ((docker-creds.username))
+          password: ((docker-creds.password))
+          repository: us.gcr.io/galoy-org/galoy-deployments-pipeline
+      inputs:
+      - name: pipeline-tasks
+      - name: blink-circles-repo
+        path: source-repo
+      params:
+        PR_BRANCH: bump-shared-tasks
+        BRANCH: main
+        GH_APP_ID: ((github-blinkbitcoin.github_app_id))
+        GH_APP_PRIVATE_KEY: ((github-blinkbitcoin.github_app_private_key))
+      run:
+        path: pipeline-tasks/ci/tasks/open-pr.sh
+- name: bump-shared-files-in-blink-card
+  plan:
+  - in_parallel:
+    - get: shared-files
+      trigger: true
+    - get: pipeline-tasks
+    - get: blink-card-repo
+  - task: bump-shared-files-blink-card
+    config:
+      platform: linux
+      image_resource:
+        type: registry-image
+        source:
+          username: ((docker-creds.username))
+          password: ((docker-creds.password))
+          repository: us.gcr.io/galoy-org/galoy-deployments-pipeline
+      inputs:
+      - name: shared-files
+        path: repo
+      - name: pipeline-tasks
+      - name: blink-card-repo
+        path: source-repo
+      outputs:
+      - name: source-repo
+      params:
+        FEATURES:
+        - rust
+        - docker
+        - chart
+      run:
+        path: pipeline-tasks/ci/tasks/bump-shared-files.sh
+  - put: blink-card-pr-branch
+    params:
+      repository: source-repo
+      force: true
+  - task: open-source-pr
+    config:
+      platform: linux
+      image_resource:
+        type: registry-image
+        source:
+          username: ((docker-creds.username))
+          password: ((docker-creds.password))
+          repository: us.gcr.io/galoy-org/galoy-deployments-pipeline
+      inputs:
+      - name: pipeline-tasks
+      - name: blink-card-repo
+        path: source-repo
+      params:
+        PR_BRANCH: bump-shared-tasks
+        BRANCH: main
+        GH_APP_ID: ((github-blinkbitcoin.github_app_id))
+        GH_APP_PRIVATE_KEY: ((github-blinkbitcoin.github_app_private_key))
+      run:
+        path: pipeline-tasks/ci/tasks/open-pr.sh
+- name: backup-org-to-gcp
+  plan:
+  - in_parallel:
+    - get: every-day-trigger
+      trigger: true
+    - get: pipeline-tasks
+  - task: gcp-backup
+    config:
+      platform: linux
+      image_resource:
+        type: registry-image
+        source:
+          repository: us.gcr.io/galoy-org/galoy-dev
+      inputs:
+      - name: pipeline-tasks
+      params:
+        GOOGLE_CREDENTIALS: ((staging-gcp-creds.creds_json))
+        GOOGLE_BUCKET_NAME: galoy-staging-backups
+        GH_APP_ID: ((github-blinkbitcoin.github_app_id))
+        GH_APP_PRIVATE_KEY: ((github-blinkbitcoin.github_app_private_key))
+      run:
+        path: pipeline-tasks/ci/tasks/gcp-backup.sh
+resources:
+- name: shared-files
+  type: git
+  webhook_token: ((webhook.secret))
+  source:
+    paths:
+    - shared/**/*
+    - shared/*
+    - vendir.tmpl.yml
+    uri: git@github.com:blinkbitcoin/concourse-shared.git
+    branch: main
+    private_key: ((github-blinkbitcoin.private_key))
+- name: pipeline-tasks
+  type: git
+  source:
+    paths:
+    - ci/tasks/*
+    - Makefile
+    uri: git@github.com:blinkbitcoin/concourse-shared.git
+    branch: main
+    private_key: ((github-blinkbitcoin.private_key))
+- name: mavapay-client-pr-branch
+  type: git
+  source:
+    uri: git@github.com:blinkbitcoin/mavapay-client.git
+    private_key: ((github-blinkbitcoin.private_key))
+    branch: bump-shared-tasks
+- name: blink-client-pr-branch
+  type: git
+  source:
+    uri: git@github.com:blinkbitcoin/blink-client.git
+    private_key: ((github-blinkbitcoin.private_key))
+    branch: bump-shared-tasks
+- name: blink-nostr-pr-branch
+  type: git
+  source:
+    uri: git@github.com:blinkbitcoin/blink-nostr.git
+    private_key: ((github-blinkbitcoin.private_key))
+    branch: bump-shared-tasks
+- name: blink-fiat-pr-branch
+  type: git
+  source:
+    uri: git@github.com:blinkbitcoin/blink-fiat.git
+    private_key: ((github-blinkbitcoin.private_key))
+    branch: bump-shared-tasks
+- name: blink-circles-pr-branch
+  type: git
+  source:
+    uri: git@github.com:blinkbitcoin/blink-circles.git
+    private_key: ((github-blinkbitcoin.private_key))
+    branch: bump-shared-tasks
+- name: blink-card-pr-branch
+  type: git
+  source:
+    uri: git@github.com:blinkbitcoin/blink-card.git
+    private_key: ((github-blinkbitcoin.private_key))
+    branch: bump-shared-tasks
+- name: mavapay-client-repo
+  type: git
+  source:
+    uri: git@github.com:blinkbitcoin/mavapay-client.git
+    private_key: ((github-blinkbitcoin.private_key))
+    branch: main
+- name: blink-client-repo
+  type: git
+  source:
+    uri: git@github.com:blinkbitcoin/blink-client.git
+    private_key: ((github-blinkbitcoin.private_key))
+    branch: main
+- name: blink-nostr-repo
+  type: git
+  source:
+    uri: git@github.com:blinkbitcoin/blink-nostr.git
+    private_key: ((github-blinkbitcoin.private_key))
+    branch: main
+- name: blink-fiat-repo
+  type: git
+  source:
+    uri: git@github.com:blinkbitcoin/blink-fiat.git
+    private_key: ((github-blinkbitcoin.private_key))
+    branch: main
+- name: blink-circles-repo
+  type: git
+  source:
+    uri: git@github.com:blinkbitcoin/blink-circles.git
+    private_key: ((github-blinkbitcoin.private_key))
+    branch: main
+- name: blink-card-repo
+  type: git
+  source:
+    uri: git@github.com:blinkbitcoin/blink-card.git
+    private_key: ((github-blinkbitcoin.private_key))
+    branch: main
+- name: nodejs-image-def
+  type: git
+  source:
+    paths:
+    - images/nodejs-concourse/Dockerfile
+    uri: git@github.com:blinkbitcoin/concourse-shared.git
+    branch: main
+    private_key: ((github-blinkbitcoin.private_key))
+- name: nodejs-image
+  type: registry-image
+  source:
+    tag: latest
+    username: ((docker-creds.username))
+    password: ((docker-creds.password))
+    repository: us.gcr.io/galoy-org/nodejs-concourse
+- name: rust-image-def
+  type: git
+  source:
+    paths:
+    - images/rust-concourse/Dockerfile
+    uri: git@github.com:blinkbitcoin/concourse-shared.git
+    branch: main
+    private_key: ((github-blinkbitcoin.private_key))
+- name: rust-image
+  type: registry-image
+  source:
+    tag: latest
+    username: ((docker-creds.username))
+    password: ((docker-creds.password))
+    repository: us.gcr.io/galoy-org/rust-concourse
+- name: release-pipeline-image
+  type: registry-image
+  source:
+    tag: latest
+    username: ((docker-creds.username))
+    password: ((docker-creds.password))
+    repository: us.gcr.io/galoy-org/release-pipeline
+- name: release-pipeline-image-def
+  type: git
+  source:
+    paths:
+    - images/release/Dockerfile
+    uri: git@github.com:blinkbitcoin/concourse-shared.git
+    branch: main
+    private_key: ((github-blinkbitcoin.private_key))
+- name: wincross-pipeline-image
+  type: registry-image
+  source:
+    tag: latest
+    username: ((docker-creds.username))
+    password: ((docker-creds.password))
+    repository: us.gcr.io/galoy-org/wincross-rust
+- name: wincross-pipeline-image-def
+  type: git
+  source:
+    paths:
+    - images/wincross/Dockerfile
+    uri: git@github.com:blinkbitcoin/concourse-shared.git
+    branch: main
+    private_key: ((github-blinkbitcoin.private_key))
+- name: every-day-trigger
+  type: time
+  icon: clock-outline
+  source:
+    interval: 24h
