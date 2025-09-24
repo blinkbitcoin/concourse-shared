@@ -9,3 +9,6 @@ fi
 
 echo "COMMITHASH=$(cat repo/.git/ref)" >> repo/.env
 echo "BUILDTIME=$(date -u '+%F-%T')" >> repo/.env
+
+echo "    --> repo/.env contents:"
+cat repo/.env
