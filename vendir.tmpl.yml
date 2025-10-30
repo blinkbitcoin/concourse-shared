@@ -3,40 +3,40 @@ kind: Config
 
 # Relative to ci/
 directories:
-- path: ../.github/workflows/vendor
+- path: ci/vendor
   contents:
-  - path: . # Copy this folder out to ..
+  - path: .
     git:
-      url: https://github.com/blinkbitcoin/concourse-shared.git
+      url: https://github.com/blinkbitcoin/concourse-shared
       ref: main
     includePaths:
-    - shared/actions/*
+    - shared/ci/**/*
+    - shared/actions/**/*
     excludePaths:
     - shared/actions/nodejs-*
     - shared/actions/rust-*
     - shared/actions/docker-*
     - shared/actions/chart-*
     - shared/actions/tofu-*
-    newRootPath: shared/actions
-
-- path: ./vendor
-  contents:
-  - path: .
-    git:
-      url: https://github.com/blinkbitcoin/concourse-shared.git
-      ref: main
-    includePaths:
-    - shared/ci/**/*
-    - shared/bin/**/*
-    excludePaths:
     - shared/ci/**/nodejs-*
     - shared/ci/**/rust-*
     - shared/ci/**/chart-*
     - shared/ci/**/docker-*
     - shared/ci/**/tofu-*
+
+- path: bin/vendor
+  contents:
+  - path: .
+    git:
+      url: https://github.com/blinkbitcoin/concourse-shared
+      ref: main
+    includePaths:
+    - shared/bin/**/*
+    excludePaths:
     - shared/bin/**/nodejs-*
     - shared/bin/**/rust-*
     - shared/bin/**/chart-*
     - shared/bin/**/docker-*
     - shared/bin/**/tofu-*
-    newRootPath: shared/ci
+
+

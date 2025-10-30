@@ -66,16 +66,19 @@ fi
   git commit -m "ci(shared): bump vendored ci files"
 )
 
-pushd ci/vendor/bin
+# Process bin files if directory exists
+if [ -d "bin/vendor" ]; then
+  pushd bin/vendor
 
-rename -f 's/^nodejs-//' *
-rename -f 's/^rust-//' *
-rename -f 's/^docker-//' *
-rename -f 's/^chart-//' *
-rename -f 's/^tofu-//' *
+  rename -f 's/^nodejs-//' *
+  rename -f 's/^rust-//' *
+  rename -f 's/^docker-//' *
+  rename -f 's/^chart-//' *
+  rename -f 's/^tofu-//' *
 
-popd
+  popd
 
-# Copy bin files to root bin directory
-mkdir -p bin
-cp -r ci/vendor/bin/* bin/ || true
+  # Copy bin files to root bin directory
+  mkdir -p bin
+  cp -r bin/vendor/* bin/ || true
+fi
