@@ -1,0 +1,42 @@
+#! Auto synced from Shared CI Resources repository
+#! Don't change this file, instead change it in github.com/blinkbitcoin/concourse-shared
+
+name: Validate changed tf files
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '**.tf'
+      - '**.tfvars'
+      - 'bin/validate-changed-tf-files.sh'
+      - '.github/workflows/validate-tofu.yml'
+
+concurrency:
+  group: validate-changed-tf-files-${{ github.head_ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Fetch all history for all branches and tags
+
+      - name: Fetch base branch
+        run: |
+          git fetch origin main:main
+
+      - name: Setup OpenTofu
+        uses: opentofu/setup-opentofu@v1
+        with:
+          tofu_version: 1.6.0
+          tofu_wrapper: false
+
+      - name: Make validation script executable
+        run: chmod +x bin/validate-changed-tf-files.sh
+
+      - name: Run validation on changed files
+        run: ./bin/validate-changed-tf-files.sh main
