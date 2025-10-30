@@ -52,20 +52,6 @@ extend-exclude = ["CHANGELOG.md"]
 EOF
 fi
 
-if [[ -z $(git config --global user.email) ]]; then
-  git config --global user.email "202112752+blinkbitcoinbot@users.noreply.github.com"
-fi
-if [[ -z $(git config --global user.name) ]]; then
-  git config --global user.name "CI blinkbitcoinbot"
-fi
-
-(
-  cd $(git rev-parse --show-toplevel)
-  git add -A
-  git status
-  git commit -m "ci(shared): bump vendored ci files"
-)
-
 # Process bin files if directory exists
 if [ -d "bin/vendor" ]; then
   pushd bin/vendor
@@ -82,3 +68,17 @@ if [ -d "bin/vendor" ]; then
   mkdir -p bin
   cp -r bin/vendor/* bin/ || true
 fi
+
+if [[ -z $(git config --global user.email) ]]; then
+  git config --global user.email "202112752+blinkbitcoinbot@users.noreply.github.com"
+fi
+if [[ -z $(git config --global user.name) ]]; then
+  git config --global user.name "CI blinkbitcoinbot"
+fi
+
+(
+  cd $(git rev-parse --show-toplevel)
+  git add -A
+  git status
+  git commit -m "ci(shared): bump vendored ci files"
+)
