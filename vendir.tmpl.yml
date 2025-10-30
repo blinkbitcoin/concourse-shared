@@ -3,7 +3,7 @@ kind: Config
 
 # Relative to ci/
 directories:
-- path: ci/vendor
+- path: vendor
   contents:
   - path: .
     git:
@@ -24,7 +24,7 @@ directories:
     - shared/ci/**/docker-*
     - shared/ci/**/tofu-*
 
-- path: bin/vendor
+- path: ../bin/vendor
   contents:
   - path: .
     git:
@@ -38,5 +38,6 @@ directories:
     - shared/bin/**/chart-*
     - shared/bin/**/docker-*
     - shared/bin/**/tofu-*
+
 
 
