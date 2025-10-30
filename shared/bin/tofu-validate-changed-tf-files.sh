@@ -77,6 +77,21 @@ while IFS= read -r dir; do
         continue
     fi
     
+    # Run prepare script if it exists
+    REPO_ROOT=$(git rev-parse --show-toplevel)
+    PREPARE_SCRIPT="${REPO_ROOT}/bin/prepare-for-validate.sh"
+    if [ -f "$PREPARE_SCRIPT" ]; then
+        echo -e "${YELLOW}Running prepare script: ${PREPARE_SCRIPT}${NC}"
+        if "$PREPARE_SCRIPT"; then
+            echo -e "${GREEN}✓ prepare script succeeded${NC}"
+        else
+            echo -e "${RED}✗ prepare script failed in ${dir}${NC}"
+            FAILED_DIRS+=("${dir} (prepare failed)")
+            cd - > /dev/null
+            continue
+        fi
+    fi
+    
     # Run tofu validate
     echo -e "${YELLOW}Running: tofu validate${NC}"
     if tofu validate; then
