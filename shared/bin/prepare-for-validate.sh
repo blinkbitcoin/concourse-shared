@@ -1,11 +1,9 @@
 #!/usr/bin/env bash
 
-#! Auto synced from Shared CI Resources repository
-#! Don't change this file, instead change it in github.com/blinkbitcoin/concourse-shared
 
 set -e
 
-echo "Preparing environment for Terraform/OpenTofu validation..."
+echo "    --> Preparing environment for Terraform/OpenTofu validation..."
 
 # Change to repository root
 pushd "$(git rev-parse --show-toplevel)" > /dev/null
@@ -46,4 +44,4 @@ mkdir -p reproduce/secrets/galoy-reporting && touch reproduce/secrets/galoy-repo
 
 popd > /dev/null
 
-echo "Environment preparation completed."
+echo "    --> Environment preparation completed."
