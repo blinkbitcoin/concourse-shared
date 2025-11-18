@@ -19,7 +19,7 @@ echo $FEATURES | jq -c '.[]' | while read feat_str; do
 done
 
 pushd ci
-vendir sync
+vendir sync --ignore-not-found
 
 pushd vendor/tasks
 
