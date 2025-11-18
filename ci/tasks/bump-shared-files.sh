@@ -19,7 +19,24 @@ echo $FEATURES | jq -c '.[]' | while read feat_str; do
 done
 
 pushd ci
-vendir sync --ignore-not-found
+
+# Run vendir sync and capture stderr
+# Only ignore errors about empty directories, fail on other errors
+# Could well be that we don't have any files to sync
+stderr_file=$(mktemp)
+if ! vendir sync 2>"$stderr_file"; then
+  stderr_content=$(cat "$stderr_file")
+  if echo "$stderr_content" | grep -q "Expected to find at least one file within directory"; then
+    echo "Warning: vendir sync found empty directories (ignoring)" >&2
+    cat "$stderr_file" >&2
+  else
+    echo "Error: vendir sync failed with unexpected error:" >&2
+    cat "$stderr_file" >&2
+    rm -f "$stderr_file"
+    exit 1
+  fi
+fi
+rm -f "$stderr_file"
 
 pushd vendor/tasks
 
