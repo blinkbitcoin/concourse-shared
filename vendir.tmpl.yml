@@ -16,6 +16,7 @@ directories:
     - shared/actions/rust-*
     - shared/actions/docker-*
     - shared/actions/chart-*
+    - shared/actions/tofu-*
     newRootPath: shared/actions
 
 - path: ./vendor
@@ -31,6 +32,7 @@ directories:
     - shared/ci/**/rust-*
     - shared/ci/**/chart-*
     - shared/ci/**/docker-*
+    - shared/ci/**/tofu-*
     newRootPath: shared/ci
 
 - path: ../bin/vendor

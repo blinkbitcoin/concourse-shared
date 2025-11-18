@@ -57,6 +57,7 @@ rename -f 's/^nodejs-//' *
 rename -f 's/^rust-//' *
 rename -f 's/^docker-//' *
 rename -f 's/^chart-//' *
+rename -f 's/^tofu-//' *
 
 popd
 
