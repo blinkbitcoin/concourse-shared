@@ -36,7 +36,7 @@ jobs:
           tofu_wrapper: false
 
       - name: Make validation script executable
-        run: chmod +x bin/validate-changed-tf-files.sh
+        run: chmod +x bin/vendor/validate-changed-tf-files.sh
 
       - name: Run validation on changed files
         run: ./bin/vendor/validate-changed-tf-files.sh main
