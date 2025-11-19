@@ -16,6 +16,7 @@ directories:
     - shared/actions/rust-*
     - shared/actions/docker-*
     - shared/actions/chart-*
+    - shared/actions/tofu-*
     newRootPath: shared/actions
 
 - path: ./vendor
@@ -31,4 +32,24 @@ directories:
     - shared/ci/**/rust-*
     - shared/ci/**/chart-*
     - shared/ci/**/docker-*
+    - shared/ci/**/tofu-*
     newRootPath: shared/ci
+
+- path: ../bin/vendor
+  contents:
+  - path: .
+    git:
+      url: https://github.com/blinkbitcoin/concourse-shared
+      ref: main
+    includePaths:
+    - shared/bin/**/*
+    excludePaths:
+    - shared/bin/**/nodejs-*
+    - shared/bin/**/rust-*
+    - shared/bin/**/chart-*
+    - shared/bin/**/docker-*
+    - shared/bin/**/tofu-*
+    newRootPath: shared/bin
+
+
+

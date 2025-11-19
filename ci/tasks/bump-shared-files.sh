@@ -9,17 +9,37 @@ popd
 pushd source-repo
 
 mkdir -p ci
+
+echo "    --> Generating vendir.yml based on ref ${ref}"
 sed "s/ref:.*/ref: ${ref}/g" ../repo/vendir.tmpl.yml > ./ci/vendir.yml
 
 echo $FEATURES | jq -c '.[]' | while read feat_str; do
   feat=$(echo $feat_str | tr -d '"')
-
+  echo "    --> Adding feature ${feat} to vendir.yml"
   # removes the features we need from excludePaths in vendir yaml
   sed -i "/\b\($feat-*\)\b/d" ./ci/vendir.yml
 done
 
 pushd ci
-vendir sync
+
+# Run vendir sync and capture stderr
+# Only ignore errors about empty directories, fail on other errors
+# Could well be that we don't have any files to sync
+stderr_file=$(mktemp)
+echo "    --> Running vendir sync"
+if ! vendir sync 2>"$stderr_file"; then
+  stderr_content=$(cat "$stderr_file")
+  if echo "$stderr_content" | grep -q "Expected to find at least one file within directory"; then
+    echo "    --> Warning: vendir sync found empty directories (ignoring)" >&2
+    cat "$stderr_file" >&2
+  else
+    echo "Error: vendir sync failed with unexpected error:" >&2
+    cat "$stderr_file" >&2
+    rm -f "$stderr_file"
+    exit 1
+  fi
+fi
+rm -f "$stderr_file"
 
 pushd vendor/tasks
 
@@ -32,6 +52,7 @@ popd
 
 popd
 
+echo "    --> Copying files to .github/workflows"
 pushd .github/workflows
 
 cp -r vendor/* .
@@ -40,9 +61,11 @@ rename -f 's/^nodejs-//' *
 rename -f 's/^rust-//' *
 rename -f 's/^docker-//' *
 rename -f 's/^chart-//' *
+rename -f 's/^tofu-//' *
 
 popd
 
+echo "    --> Copying dependabot config"
 mv ci/vendor/config/*-dependabot.yml .github/dependabot.yml || true
 
 if [[ ! -f ./typos.toml ]]; then
@@ -52,6 +75,25 @@ extend-exclude = ["CHANGELOG.md"]
 EOF
 fi
 
+echo "    --> Process bin files if directory exists"
+if [ -d "bin/vendor" ]; then
+  pushd bin/vendor
+
+  echo "    --> Removing feature prefixes from bin files"
+  rename -f 's/^nodejs-//' *
+  rename -f 's/^rust-//' *
+  rename -f 's/^docker-//' *
+  rename -f 's/^chart-//' *
+  rename -f 's/^tofu-//' *
+
+  popd
+
+  echo "    --> Move bin files to root bin directory"
+  mkdir -p bin
+  mv -r bin/vendor/* bin/ || true
+fi
+
+echo "    --> Committing changes"
 if [[ -z $(git config --global user.email) ]]; then
   git config --global user.email "202112752+blinkbitcoinbot@users.noreply.github.com"
 fi
