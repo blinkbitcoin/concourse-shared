@@ -39,7 +39,7 @@ directories:
   contents:
   - path: .
     git:
-      url: https://github.com/blinkbitcoin/concourse-shared
+      url: https://github.com/blinkbitcoin/concourse-shared.git
       ref: main
     includePaths:
     - shared/bin/**/*
