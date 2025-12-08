@@ -90,7 +90,7 @@ if [ -d "bin/vendor" ]; then
 
   echo "    --> Move bin files to root bin directory"
   mkdir -p bin
-  mv -r bin/vendor/* bin/ || true
+  mv bin/vendor/* bin/ || true
 fi
 
 echo "    --> Committing changes"
