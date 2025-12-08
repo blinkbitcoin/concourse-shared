@@ -9,7 +9,7 @@ on:
     paths:
       - '**.tf'
       - '**.tfvars'
-      - 'bin/vendor/validate-changed-tf-files.sh'
+      - 'bin/validate-changed-tf-files.sh'
       - '.github/workflows/validate-changed-tf-files.yml'
 
 concurrency:
