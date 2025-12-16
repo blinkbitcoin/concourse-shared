@@ -39,4 +39,4 @@ jobs:
         run: chmod +x bin/validate-changed-tf-files.sh
 
       - name: Run validation on changed files
-        run: ./bin/validate-changed-tf-files.sh main
+        run: ./bin/validate-changed-tf-files.sh ${{ github.base_ref }}
