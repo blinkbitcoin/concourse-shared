@@ -79,7 +79,7 @@ ytt library providing reusable pipeline components:
 | nodejs-concourse | node:20-bookworm | pnpm, docker, gcloud, gh-cli, bats |
 | rust-concourse | rust:latest | cargo-nextest, clippy, sqlx-cli, docker |
 | release-pipeline | python:3.8-buster | git-cliff, helm, kubectl, bump2version |
-| wincross | rust:latest | mingw-w64, x86_64-pc-windows-gnu target |
+| wincross-rust | rust:latest | mingw-w64, x86_64-pc-windows-gnu target |
 
 ## Configuration
 
