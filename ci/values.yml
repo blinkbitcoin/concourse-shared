@@ -28,3 +28,4 @@ src_repos:
   blink-card: ["rust", "docker", "chart"]
   stablesats-rs: ["rust", "docker", "chart"]
   blink-admin-panel-private: ["nodejs", "docker", "chart"]
+  blink-terminal: ["nodejs", "docker", "chart"]
