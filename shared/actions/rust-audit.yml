@@ -12,6 +12,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-      - uses: actions-rs/audit-check@v1
+      # rustsec/audit-check is the maintained fork of the archived
+      # actions-rs/audit-check; it runs current cargo-audit against a
+      # freshly-pulled advisory-db, matching the Concourse `cargo audit` job.
+      - uses: rustsec/audit-check@v2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
