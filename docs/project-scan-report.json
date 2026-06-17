@@ -1,0 +1,49 @@
+{
+  "workflow_version": "1.2.0",
+  "timestamps": {
+    "started": "2025-12-09T20:45:00Z",
+    "last_updated": "2025-12-09T21:05:00Z",
+    "completed": "2025-12-09T21:05:00Z"
+  },
+  "mode": "initial_scan",
+  "scan_level": "exhaustive",
+  "project_root": "/Users/kim/src/concourse-shared",
+  "output_folder": "/Users/kim/src/concourse-shared/docs",
+  "completed_steps": [
+    {"step": "step_1", "status": "completed", "timestamp": "2025-12-09T20:45:00Z", "summary": "Classified as monolith with 1 part (infra type)"},
+    {"step": "step_2", "status": "completed", "timestamp": "2025-12-09T20:48:00Z", "summary": "Found 1 existing doc (README.md)"},
+    {"step": "step_3", "status": "completed", "timestamp": "2025-12-09T20:50:00Z", "summary": "Tech stack: Concourse CI, ytt, Shell, Docker, Nix"},
+    {"step": "step_4", "status": "completed", "timestamp": "2025-12-09T20:52:00Z", "summary": "CI/CD analysis: 3 pipeline groups, 7 target repos"},
+    {"step": "step_5", "status": "completed", "timestamp": "2025-12-09T20:56:00Z", "summary": "Source tree documented"},
+    {"step": "step_6", "status": "completed", "timestamp": "2025-12-09T20:59:00Z", "summary": "Dev guide written"},
+    {"step": "step_8", "status": "completed", "timestamp": "2025-12-09T21:02:00Z", "summary": "Architecture doc written"},
+    {"step": "step_9", "status": "completed", "timestamp": "2025-12-09T21:03:00Z", "summary": "Project overview written"},
+    {"step": "step_10", "status": "completed", "timestamp": "2025-12-09T21:03:00Z", "summary": "Master index generated"},
+    {"step": "step_11", "status": "completed", "timestamp": "2025-12-09T21:04:00Z", "summary": "Validation complete, no incomplete markers"},
+    {"step": "step_12", "status": "completed", "timestamp": "2025-12-09T21:05:00Z", "summary": "Workflow complete"}
+  ],
+  "current_step": "completed",
+  "project_types": [
+    {
+      "part_id": "main",
+      "project_type_id": "infra",
+      "display_name": "CI/CD Infrastructure"
+    }
+  ],
+  "findings": {
+    "project_classification": {
+      "repository_type": "monolith",
+      "parts_count": 1,
+      "primary_tech": "Concourse CI, Shell, Docker, Nix"
+    }
+  },
+  "outputs_generated": [
+    "project-scan-report.json",
+    "index.md",
+    "project-overview.md",
+    "architecture.md",
+    "source-tree-analysis.md",
+    "development-guide.md"
+  ],
+  "resume_instructions": "Workflow completed successfully"
+}
