@@ -1,4 +1,4 @@
-FROM node:20-bookworm
+FROM node:24-bookworm
 
 RUN npm i --global @graphql-inspector/cli graphql
 RUN npm install -g pnpm
