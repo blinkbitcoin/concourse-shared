@@ -224,7 +224,7 @@ plan:
 on_failure: #@ slack_failure_notification()
 #@ end
 
-#@ def nodejs_audit(level = "high"):
+#@ def nodejs_audit(level = "critical"):
 name: audit
 serial: true
 plan:
@@ -348,7 +348,6 @@ plan:
         trigger: true
         passed: [ release ]
       - get: charts-repo
-        params: { skip_download: true }
       - get: pipeline-tasks
   - task: bump-image-digest-in-values
     config:
