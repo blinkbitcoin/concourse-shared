@@ -39,6 +39,8 @@ class TrustTests(unittest.TestCase):
         self.assertEqual(kwargs["timeout"], 900)
         if self.failure and self.failure[0](args):
             return subprocess.CompletedProcess(args, self.failure[1], "", self.failure[2])
+        if args[0] == "openssl":
+            return subprocess.CompletedProcess(args, 2, "", "error 20 at 1 depth lookup")
         if args[0] == "dpkg-query":
             return subprocess.CompletedProcess(args, 0, self.package, "")
         if any(a.startswith("RUSTUP_DIST_SERVER=") for a in args):
@@ -124,6 +126,27 @@ class TrustTests(unittest.TestCase):
         self.failure = (lambda a: a[-1] == "https://deb.debian.org/", 60, "untrusted")
         with self.assertRaisesRegex(RuntimeError, "curl failed"):
             trust.qualify()
+
+    def test_published_fixture_identity_is_required(self):
+        import base64
+        for host in trust.FIXTURE_HOSTS:
+            with self.subTest(host=host), patch.object(trust, "FIXTURE_ZIP", base64.b64encode(host.encode()).decode()):
+                with self.assertRaisesRegex(RuntimeError, "identity mismatch"):
+                    trust.qualify()
+
+    def test_every_offline_chain_requires_trust_rejection(self):
+        for host in trust.FIXTURE_HOSTS:
+            for code, error in ((0, ""), (1, "bad option"), (2, "error 10 at 0 depth: expired"),
+                                (2, "error 62 at 0 depth: hostname mismatch")):
+                self.failure = (lambda a: a[0] == "openssl" and host in a, code, error)
+                with self.subTest(host=host, code=code), self.assertRaisesRegex(RuntimeError, host):
+                    trust.qualify()
+        for code in (19, 20, 21, 28):
+            self.failure = (lambda a: a[0] == "openssl", 2, f"error {code} at 1 depth lookup")
+            trust.qualify()
+        self.assertEqual(len(trust.FIXTURE_HOSTS), 14)
+        openssl = [a for a in self.calls if a[0] == "openssl"]
+        self.assertTrue(all("-no-CApath" in a and "-no-CAstore" in a for a in openssl))
 
     def test_cli_modes_and_sanitized_failures(self):
         for mode in ("verify", "refresh"):

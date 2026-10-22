@@ -20,6 +20,12 @@ class PipelineTests(unittest.TestCase):
         self.assertIsInstance(pipeline, dict)
         self.assertIn("jobs", pipeline)
 
+    def test_consumer_automation_requires_explicit_opt_in(self):
+        for enabled in (False, True):
+            pipeline = json.loads(self.render("--data-value-yaml", f"enable_shared_file_updates={str(enabled).lower()}", "-o", "json"))
+            jobs = [j for j in pipeline["jobs"] if j["name"].startswith("bump-shared-files-")]
+            self.assertEqual(bool(jobs), enabled)
+
     def test_all_image_builds_use_root_context_and_shared_gate(self):
         pipeline = json.loads(self.render("-o", "json"))
         resources = {r["name"]: r for r in pipeline["resources"]}
@@ -32,13 +38,16 @@ class PipelineTests(unittest.TestCase):
             self.assertIn("images/trust/*", paths)
             dockerfile = paths[0]
             config = build["config"]
-            args = config["run"]["args"]
+            args = config["run"]["args"][-1].split()
             self.assertIn("--context=" + name, args)
             self.assertIn("--dockerfile=" + dockerfile, args)
             self.assertIn("--cache=false", args)
             self.assertIn("--no-push", args)
             self.assertIn("--digest-file=image/digest", args)
             self.assertEqual(publish["params"]["image"], "image/image.tar")
+            self.assertEqual(publish["params"]["additional_tags"], "image/tags")
+            self.assertEqual(resources[publish["put"]]["source"]["tag"], "trust-candidate")
+            self.assertIn("sha256-%s", config["run"]["args"][-1])
             source = (ROOT / dockerfile).read_text()
             self.assertIn("@sha256:", source.splitlines()[0])
             self.assertLess(source.index("verify.py refresh"), source.index("FROM trust-base AS final"))

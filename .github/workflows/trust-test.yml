@@ -3,7 +3,10 @@ on:
   pull_request:
     paths:
       - '.github/workflows/trust-test.yml'
-      - 'images/trust/**'
+      - 'images/**'
+      - '.dockerignore'
+      - 'ci/**'
+      - 'tests/test_pipeline.py'
       - 'tests/test_trust.py'
 permissions:
   contents: read
@@ -12,4 +15,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: python3 -m unittest discover -s tests -p test_trust.py -v
+      - name: Install pinned ytt
+        run: |
+          curl -fsSL https://github.com/carvel-dev/ytt/releases/download/v0.52.2/ytt-linux-amd64 -o /tmp/ytt
+          echo '76d5355a5135c59a1791f420f3094579f775cbf2a987328f920a05e1338f1e1f  /tmp/ytt' | sha256sum -c -
+          sudo install -m 0755 /tmp/ytt /usr/local/bin/ytt
+      - name: Install pinned Fly validator
+        run: |
+          curl -fsSL https://github.com/concourse/concourse/releases/download/v8.3.0/fly-8.3.0-linux-amd64.tgz -o /tmp/fly.tgz
+          echo '0b5f660b10e1655cbde4f25d6e1683815f0e5e66983b3f77576591e73a800f43  /tmp/fly.tgz' | sha256sum -c -
+          tar -xzf /tmp/fly.tgz -C /tmp fly
+          sudo install -m 0755 /tmp/fly /usr/local/bin/fly
+      - run: python3 -m unittest discover -s tests -p 'test_*.py' -v
+      - run: fly validate-pipeline -c ci/build/pipeline.yml

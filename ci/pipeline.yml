@@ -20,11 +20,17 @@ source:
 #@   return repo_name + "-repo"
 #@ end
 
+#@ def enabled_repos():
+#@   return data.values.src_repos if data.values.enable_shared_file_updates else {}
+#@ end
+
 groups:
+#@ if data.values.enable_shared_file_updates:
 - name: bump-shared-files
   jobs:
-#@ for repo in data.values.src_repos:
+#@ for repo in enabled_repos():
   - #@ "bump-shared-files-in-" + repo
+#@ end
 #@ end
 - name: images
   jobs:
@@ -44,22 +50,16 @@ config:
     type: registry-image
     source:
       repository: gcr.io/kaniko-project/executor
-      tag: debug
+      digest: sha256:2562c4fe551399514277ffff7dcca9a3b1628c4ea38cb017d7286dc6ea52f4cd
   inputs:
   - name: #@ input_name
   outputs:
   - name: image
   run:
-    path: /kaniko/executor
+    path: /busybox/sh
     args:
-      - #@ "--dockerfile=" + dockerfile
-      - #@ "--context=" + input_name
-      - --use-new-run
-      - --single-snapshot
-      - --cache=false
-      - --no-push
-      - --tar-path=image/image.tar
-      - --digest-file=image/digest
+    - -ec
+    - #@ "/kaniko/executor --dockerfile=" + dockerfile + " --context=" + input_name + " --use-new-run --single-snapshot --cache=false --no-push --tar-path=image/image.tar --digest-file=image/digest && digest=$(cat image/digest) && echo \"$digest\" | grep -Eq '^sha256:[0-9a-f]{64}$' && printf 'sha256-%s\\n' \"${digest#sha256:}\" > image/tags && cat image/digest"
 #@ end
 
 jobs:
@@ -71,6 +71,7 @@ jobs:
   - put: rust-image
     params:
       image: image/image.tar
+      additional_tags: image/tags
 
 - name: build-nodejs-concourse-image
   serial: true
@@ -80,6 +81,7 @@ jobs:
   - put: nodejs-image
     params:
       image: image/image.tar
+      additional_tags: image/tags
 
 - name: build-release-pipeline-image
   serial: true
@@ -90,6 +92,7 @@ jobs:
   - put: release-pipeline-image
     params:
       image: image/image.tar
+      additional_tags: image/tags
 
 - name: build-wincross-pipeline-image
   serial: true
@@ -100,9 +103,10 @@ jobs:
   - put: wincross-pipeline-image
     params:
       image: image/image.tar
+      additional_tags: image/tags
 
 
-#@ for repo in data.values.src_repos:
+#@ for repo in enabled_repos():
 - name: #@ "bump-shared-files-in-" + repo
   plan:
   - in_parallel:
@@ -169,6 +173,7 @@ jobs:
         path: pipeline-tasks/ci/tasks/gcp-backup.sh
 
 resources:
+#@ if data.values.enable_shared_file_updates:
 - name: shared-files
   type: git
   webhook_token: ((webhook.secret))
@@ -181,6 +186,7 @@ resources:
     branch: #@ data.values.git_branch
     private_key: #@ data.values.github_private_key
 
+#@ end
 - name: pipeline-tasks
   type: git
   source:
@@ -189,7 +195,7 @@ resources:
     branch: #@ data.values.git_branch
     private_key: #@ data.values.github_private_key
 
-#@ for repo in data.values.src_repos:
+#@ for repo in enabled_repos():
 - name: #@ repo_pr_branch_resource_name(repo)
   type: git
   source:
@@ -198,7 +204,7 @@ resources:
     branch: #@ data.values.pr_branch
 #@ end
 
-#@ for repo in data.values.src_repos:
+#@ for repo in enabled_repos():
 - name: #@ repo_resource_name(repo)
   type: git
   source:
@@ -218,7 +224,7 @@ resources:
 - name: nodejs-image
   type: registry-image
   source:
-    tag: latest
+    tag: trust-candidate
     username: #@ data.values.docker_registry_user
     password: #@ data.values.docker_registry_password
     repository: #@ data.values.docker_registry + "/nodejs-concourse"
@@ -234,7 +240,7 @@ resources:
 - name: rust-image
   type: registry-image
   source:
-    tag: latest
+    tag: trust-candidate
     username: #@ data.values.docker_registry_user
     password: #@ data.values.docker_registry_password
     repository: #@ data.values.docker_registry + "/rust-concourse"
@@ -242,7 +248,7 @@ resources:
 - name: release-pipeline-image
   type: registry-image
   source:
-    tag: latest
+    tag: trust-candidate
     username: #@ data.values.docker_registry_user
     password: #@ data.values.docker_registry_password
     repository: #@   data.values.docker_registry + "/release-pipeline"
@@ -258,7 +264,7 @@ resources:
 - name: wincross-pipeline-image
   type: registry-image
   source:
-    tag: latest
+    tag: trust-candidate
     username: #@ data.values.docker_registry_user
     password: #@ data.values.docker_registry_password
     repository: #@   data.values.docker_registry + "/wincross-rust"

@@ -84,3 +84,16 @@ performed by the local commands above.
 - https://nodejs.org/en/blog/release/v24.22.1
 - https://github.com/nodejs/node/pull/66871
 - https://docs.cloud.google.com/sdk/gcloud/reference/config
+
+## Review qualification boundary
+
+Builds publish only `trust-candidate` and a content-addressed `sha256-<digest>`
+tag. They never move `latest`. The put resource's registry digest must equal
+the digest printed by the build and the content tag before adoption; retain
+both in the task evidence. The release Python 3.11/Bookworm migration remains
+a candidate until downstream release jobs qualify it. No compatibility
+promotion is automated. A separate reviewed promotion may move `latest`.
+
+Shared-file propagation is disabled by default, including its generated jobs
+and repository resources. Each source owner must authorize activation before
+`enable_shared_file_updates` is enabled in a separate change.
