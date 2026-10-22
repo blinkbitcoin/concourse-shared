@@ -21,6 +21,8 @@ jobs:
         type: registry-image
         source:
           repository: gcr.io/kaniko-project/executor
+          tag: v1.24.0-debug
+        version:
           digest: sha256:2562c4fe551399514277ffff7dcca9a3b1628c4ea38cb017d7286dc6ea52f4cd
       inputs:
       - name: rust-image-def
@@ -31,10 +33,68 @@ jobs:
         args:
         - -ec
         - /kaniko/executor --dockerfile=images/rust-concourse/Dockerfile --context=rust-image-def --use-new-run --single-snapshot --cache=false --no-push --tar-path=image/image.tar --digest-file=image/digest && digest=$(cat image/digest) && echo "$digest" | grep -Eq '^sha256:[0-9a-f]{64}$' && printf 'sha256-%s\n' "${digest#sha256:}" > image/tags && cat image/digest
+  - task: registry-snapshot
+    config:
+      platform: linux
+      image_resource:
+        type: registry-image
+        source:
+          repository: python
+          tag: 3.11-bookworm
+        version:
+          digest: sha256:18d373e126e39c29c6d38e71e2f19ca66636568318fc95c7849c462b7f9d3d64
+      inputs:
+      - name: rust-image-def
+      outputs:
+      - name: previous
+      params:
+        REGISTRY_USERNAME: ((docker-creds.username))
+        REGISTRY_PASSWORD: ((docker-creds.password))
+      run:
+        path: python3
+        args:
+        - rust-image-def/images/trust/registry-proof.py
+        - snapshot
+        - us.gcr.io/galoy-org/rust-concourse
+        - trust-candidate
+        - previous/digest.json
   - put: rust-image
+    get_params:
+      skip_download: true
     params:
       image: image/image.tar
       additional_tags: image/tags
+  - task: registry-verify
+    config:
+      platform: linux
+      image_resource:
+        type: registry-image
+        source:
+          repository: python
+          tag: 3.11-bookworm
+        version:
+          digest: sha256:18d373e126e39c29c6d38e71e2f19ca66636568318fc95c7849c462b7f9d3d64
+      inputs:
+      - name: rust-image-def
+      - name: image
+      - name: rust-image
+      - name: previous
+      outputs:
+      - name: registry-proof
+      params:
+        REGISTRY_USERNAME: ((docker-creds.username))
+        REGISTRY_PASSWORD: ((docker-creds.password))
+      run:
+        path: python3
+        args:
+        - rust-image-def/images/trust/registry-proof.py
+        - verify
+        - us.gcr.io/galoy-org/rust-concourse
+        - trust-candidate
+        - registry-proof/digests.json
+        - image/digest
+        - rust-image/digest
+        - previous/digest.json
 - name: build-nodejs-concourse-image
   serial: true
   plan:
@@ -47,6 +107,8 @@ jobs:
         type: registry-image
         source:
           repository: gcr.io/kaniko-project/executor
+          tag: v1.24.0-debug
+        version:
           digest: sha256:2562c4fe551399514277ffff7dcca9a3b1628c4ea38cb017d7286dc6ea52f4cd
       inputs:
       - name: nodejs-image-def
@@ -57,10 +119,68 @@ jobs:
         args:
         - -ec
         - /kaniko/executor --dockerfile=images/nodejs-concourse/Dockerfile --context=nodejs-image-def --use-new-run --single-snapshot --cache=false --no-push --tar-path=image/image.tar --digest-file=image/digest && digest=$(cat image/digest) && echo "$digest" | grep -Eq '^sha256:[0-9a-f]{64}$' && printf 'sha256-%s\n' "${digest#sha256:}" > image/tags && cat image/digest
+  - task: registry-snapshot
+    config:
+      platform: linux
+      image_resource:
+        type: registry-image
+        source:
+          repository: python
+          tag: 3.11-bookworm
+        version:
+          digest: sha256:18d373e126e39c29c6d38e71e2f19ca66636568318fc95c7849c462b7f9d3d64
+      inputs:
+      - name: nodejs-image-def
+      outputs:
+      - name: previous
+      params:
+        REGISTRY_USERNAME: ((docker-creds.username))
+        REGISTRY_PASSWORD: ((docker-creds.password))
+      run:
+        path: python3
+        args:
+        - nodejs-image-def/images/trust/registry-proof.py
+        - snapshot
+        - us.gcr.io/galoy-org/nodejs-concourse
+        - trust-candidate
+        - previous/digest.json
   - put: nodejs-image
+    get_params:
+      skip_download: true
     params:
       image: image/image.tar
       additional_tags: image/tags
+  - task: registry-verify
+    config:
+      platform: linux
+      image_resource:
+        type: registry-image
+        source:
+          repository: python
+          tag: 3.11-bookworm
+        version:
+          digest: sha256:18d373e126e39c29c6d38e71e2f19ca66636568318fc95c7849c462b7f9d3d64
+      inputs:
+      - name: nodejs-image-def
+      - name: image
+      - name: nodejs-image
+      - name: previous
+      outputs:
+      - name: registry-proof
+      params:
+        REGISTRY_USERNAME: ((docker-creds.username))
+        REGISTRY_PASSWORD: ((docker-creds.password))
+      run:
+        path: python3
+        args:
+        - nodejs-image-def/images/trust/registry-proof.py
+        - verify
+        - us.gcr.io/galoy-org/nodejs-concourse
+        - trust-candidate
+        - registry-proof/digests.json
+        - image/digest
+        - nodejs-image/digest
+        - previous/digest.json
 - name: build-release-pipeline-image
   serial: true
   plan:
@@ -73,6 +193,8 @@ jobs:
         type: registry-image
         source:
           repository: gcr.io/kaniko-project/executor
+          tag: v1.24.0-debug
+        version:
           digest: sha256:2562c4fe551399514277ffff7dcca9a3b1628c4ea38cb017d7286dc6ea52f4cd
       inputs:
       - name: release-pipeline-image-def
@@ -83,10 +205,68 @@ jobs:
         args:
         - -ec
         - /kaniko/executor --dockerfile=images/release/Dockerfile --context=release-pipeline-image-def --use-new-run --single-snapshot --cache=false --no-push --tar-path=image/image.tar --digest-file=image/digest && digest=$(cat image/digest) && echo "$digest" | grep -Eq '^sha256:[0-9a-f]{64}$' && printf 'sha256-%s\n' "${digest#sha256:}" > image/tags && cat image/digest
+  - task: registry-snapshot
+    config:
+      platform: linux
+      image_resource:
+        type: registry-image
+        source:
+          repository: python
+          tag: 3.11-bookworm
+        version:
+          digest: sha256:18d373e126e39c29c6d38e71e2f19ca66636568318fc95c7849c462b7f9d3d64
+      inputs:
+      - name: release-pipeline-image-def
+      outputs:
+      - name: previous
+      params:
+        REGISTRY_USERNAME: ((docker-creds.username))
+        REGISTRY_PASSWORD: ((docker-creds.password))
+      run:
+        path: python3
+        args:
+        - release-pipeline-image-def/images/trust/registry-proof.py
+        - snapshot
+        - us.gcr.io/galoy-org/release-pipeline
+        - trust-candidate
+        - previous/digest.json
   - put: release-pipeline-image
+    get_params:
+      skip_download: true
     params:
       image: image/image.tar
       additional_tags: image/tags
+  - task: registry-verify
+    config:
+      platform: linux
+      image_resource:
+        type: registry-image
+        source:
+          repository: python
+          tag: 3.11-bookworm
+        version:
+          digest: sha256:18d373e126e39c29c6d38e71e2f19ca66636568318fc95c7849c462b7f9d3d64
+      inputs:
+      - name: release-pipeline-image-def
+      - name: image
+      - name: release-pipeline-image
+      - name: previous
+      outputs:
+      - name: registry-proof
+      params:
+        REGISTRY_USERNAME: ((docker-creds.username))
+        REGISTRY_PASSWORD: ((docker-creds.password))
+      run:
+        path: python3
+        args:
+        - release-pipeline-image-def/images/trust/registry-proof.py
+        - verify
+        - us.gcr.io/galoy-org/release-pipeline
+        - trust-candidate
+        - registry-proof/digests.json
+        - image/digest
+        - release-pipeline-image/digest
+        - previous/digest.json
 - name: build-wincross-pipeline-image
   serial: true
   plan:
@@ -99,6 +279,8 @@ jobs:
         type: registry-image
         source:
           repository: gcr.io/kaniko-project/executor
+          tag: v1.24.0-debug
+        version:
           digest: sha256:2562c4fe551399514277ffff7dcca9a3b1628c4ea38cb017d7286dc6ea52f4cd
       inputs:
       - name: wincross-pipeline-image-def
@@ -109,10 +291,68 @@ jobs:
         args:
         - -ec
         - /kaniko/executor --dockerfile=images/wincross/Dockerfile --context=wincross-pipeline-image-def --use-new-run --single-snapshot --cache=false --no-push --tar-path=image/image.tar --digest-file=image/digest && digest=$(cat image/digest) && echo "$digest" | grep -Eq '^sha256:[0-9a-f]{64}$' && printf 'sha256-%s\n' "${digest#sha256:}" > image/tags && cat image/digest
+  - task: registry-snapshot
+    config:
+      platform: linux
+      image_resource:
+        type: registry-image
+        source:
+          repository: python
+          tag: 3.11-bookworm
+        version:
+          digest: sha256:18d373e126e39c29c6d38e71e2f19ca66636568318fc95c7849c462b7f9d3d64
+      inputs:
+      - name: wincross-pipeline-image-def
+      outputs:
+      - name: previous
+      params:
+        REGISTRY_USERNAME: ((docker-creds.username))
+        REGISTRY_PASSWORD: ((docker-creds.password))
+      run:
+        path: python3
+        args:
+        - wincross-pipeline-image-def/images/trust/registry-proof.py
+        - snapshot
+        - us.gcr.io/galoy-org/wincross-rust
+        - trust-candidate
+        - previous/digest.json
   - put: wincross-pipeline-image
+    get_params:
+      skip_download: true
     params:
       image: image/image.tar
       additional_tags: image/tags
+  - task: registry-verify
+    config:
+      platform: linux
+      image_resource:
+        type: registry-image
+        source:
+          repository: python
+          tag: 3.11-bookworm
+        version:
+          digest: sha256:18d373e126e39c29c6d38e71e2f19ca66636568318fc95c7849c462b7f9d3d64
+      inputs:
+      - name: wincross-pipeline-image-def
+      - name: image
+      - name: wincross-pipeline-image
+      - name: previous
+      outputs:
+      - name: registry-proof
+      params:
+        REGISTRY_USERNAME: ((docker-creds.username))
+        REGISTRY_PASSWORD: ((docker-creds.password))
+      run:
+        path: python3
+        args:
+        - wincross-pipeline-image-def/images/trust/registry-proof.py
+        - verify
+        - us.gcr.io/galoy-org/wincross-rust
+        - trust-candidate
+        - registry-proof/digests.json
+        - image/digest
+        - wincross-pipeline-image/digest
+        - previous/digest.json
 - name: backup-org-to-gcp
   plan:
   - in_parallel:

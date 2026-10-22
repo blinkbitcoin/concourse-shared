@@ -54,7 +54,22 @@ def verify_fixture_chains():
     with zipfile.ZipFile(io.BytesIO(archive)) as fixtures, tempfile.TemporaryDirectory() as directory:
         for host in FIXTURE_HOSTS:
             path = Path(directory) / "chain.pem"
-            path.write_bytes(fixtures.read(f"chains/{host}.pem"))
+            chain = fixtures.read(f"chains/{host}.pem")
+            path.write_bytes(chain)
+            certificates = chain.split(b"-----BEGIN CERTIFICATE-----")[1:]
+            if len(certificates) < 2:
+                raise RuntimeError(f"Incomplete published chain: {host}")
+            anchor = Path(directory) / "anchor.pem"
+            anchor.write_bytes(b"-----BEGIN CERTIFICATE-----" + certificates[-1])
+            # First prove signatures, links, validity, hostname and purpose.
+            # The explicit final certificate is a temporary trust anchor only
+            # for this positive fixture-integrity control, never for admission.
+            linked = run("openssl", "verify", "-trusted", str(anchor), "-partial_chain",
+                         "-no-CAfile", "-no-CApath", "-no-CAstore", "-attime", FIXTURE_TIME,
+                         "-purpose", "sslserver", "-verify_hostname", host,
+                         "-untrusted", str(path), str(path))
+            if linked.returncode != 0:
+                raise RuntimeError(f"Published chain does not link: {host}")
             result = run("openssl", "verify", "-CAfile", BUNDLE,
                          "-no-CApath", "-no-CAstore", "-attime", FIXTURE_TIME,
                          "-purpose", "sslserver", "-verify_hostname", host,
@@ -62,7 +77,7 @@ def verify_fixture_chains():
             # OpenSSL verify returns 2 for verification errors. Reject expiry,
             # hostname, parse and command errors: only missing trust qualifies.
             if result.returncode != 2 or not any(
-                f"error {code} at " in result.stderr for code in (19, 20, 21, 28)
+                f"error {code} at " in result.stderr for code in (19, 20, 28)
             ):
                 raise RuntimeError(f"Published chain accepted or inconclusive: {host}")
 

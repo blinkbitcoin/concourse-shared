@@ -5,7 +5,7 @@ Task: https://github.com/blinkbitcoin/blink-wip/issues/1699
 ## Plan and rationale
 
 Use digest-pinned Debian 12 bases and refresh `ca-certificates` before any
-installer downloads. Require at least `20250419~deb12u2`, all twelve published
+installer downloads. Require at least `20250419~deb12u2`, all fourteen published
 eMudhra chain fixtures to fail for certificate distrust, and a healthy Debian
 request. Repeat verification after tool installation. Timeouts, DNS failures,
 expired certificates, and hostname mismatches do not pass the gate. The public
@@ -87,10 +87,19 @@ performed by the local commands above.
 
 ## Review qualification boundary
 
-Builds publish only `trust-candidate` and a content-addressed `sha256-<digest>`
-tag. They never move `latest`. The put resource's registry digest must equal
-the digest printed by the build and the content tag before adoption; retain
-both in the task evidence. The release Python 3.11/Bookworm migration remains
+Builds publish only `trust-candidate` and a build-derived `sha256-<digest>`
+tag. They never move `latest`. A pre-publication task records the previous
+candidate digest (or confirmed absence) in its output and retained build log.
+After publication, the verifier fetches both tags from GCR, checks manifest
+bytes against registry digest headers, and requires both digests to equal the
+Kaniko digest and the put resource result. A mismatch fails the job. Both
+receipts are printed to retained task logs; archive those logs with adoption
+evidence. No failed publication or readback triggers automatic promotion.
+The tag is treated as immutable identity only after this readback succeeds.
+The independent verifier uses a digest-pinned Python image and the hash-checked
+NSS CA data documented in `registry-ca.md`; it accepts no redirects or alternate
+registry/token hosts. Authenticated private-registry execution remains an
+adoption gate until the owning pipeline has run. The release Python 3.11/Bookworm migration remains
 a candidate until downstream release jobs qualify it. No compatibility
 promotion is automated. A separate reviewed promotion may move `latest`.
 

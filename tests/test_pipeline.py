@@ -32,12 +32,16 @@ class PipelineTests(unittest.TestCase):
         builds = [j for j in pipeline["jobs"] if j["name"].startswith("build-")]
         self.assertEqual(len(builds), 4)
         for job in builds:
-            source, build, publish = job["plan"]
+            source, build, snapshot, publish, verify = job["plan"]
             name = source["get"]
             paths = resources[name]["source"]["paths"]
             self.assertIn("images/trust/*", paths)
             dockerfile = paths[0]
             config = build["config"]
+            self.assertNotIn("digest", config["image_resource"]["source"])
+            self.assertEqual(config["image_resource"]["source"]["tag"], "v1.24.0-debug")
+            self.assertEqual(config["image_resource"]["version"]["digest"], "sha256:2562c4fe551399514277ffff7dcca9a3b1628c4ea38cb017d7286dc6ea52f4cd")
+            self.assertEqual(config["run"]["path"], "/busybox/sh")
             args = config["run"]["args"][-1].split()
             self.assertIn("--context=" + name, args)
             self.assertIn("--dockerfile=" + dockerfile, args)
@@ -48,6 +52,10 @@ class PipelineTests(unittest.TestCase):
             self.assertEqual(publish["params"]["additional_tags"], "image/tags")
             self.assertEqual(resources[publish["put"]]["source"]["tag"], "trust-candidate")
             self.assertIn("sha256-%s", config["run"]["args"][-1])
+            self.assertEqual(snapshot["config"]["run"]["args"][1], "snapshot")
+            self.assertEqual(verify["config"]["run"]["args"][1], "verify")
+            self.assertEqual(verify["config"]["run"]["args"][-3:], ["image/digest", publish["put"] + "/digest", "previous/digest.json"])
+            self.assertEqual(publish["get_params"], {"skip_download": True})
             source = (ROOT / dockerfile).read_text()
             self.assertIn("@sha256:", source.splitlines()[0])
             self.assertLess(source.index("verify.py refresh"), source.index("FROM trust-base AS final"))
