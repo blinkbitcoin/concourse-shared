@@ -1,0 +1,15 @@
+name: Shared image trust gates
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/trust-test.yml'
+      - 'images/trust/**'
+      - 'tests/test_trust.py'
+permissions:
+  contents: read
+jobs:
+  trust:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 -m unittest discover -s tests -p test_trust.py -v
