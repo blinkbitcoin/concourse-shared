@@ -1,4 +1,12 @@
-FROM rust
+FROM rust:bookworm@sha256:48b7f435b8fc6378ce43b44f15e3a47fd8919b2825f835c39bd4bd3da50af5b8 AS trust-base
+
+# Build from the repository root so all images use the same admission gate.
+COPY images/trust /usr/local/lib/ci-trust
+RUN apt-get -o APT::Update::Error-Mode=any update \
+  && apt-get install -y --no-remove --no-install-recommends python3 ca-certificates curl \
+  && /usr/bin/python3 /usr/local/lib/ci-trust/verify.py refresh --rustup
+
+FROM trust-base AS final
 
 RUN rustc --version
 
@@ -9,6 +17,7 @@ RUN cargo install cargo-nextest cargo-deny cargo-audit typos-cli sqlx-cli handle
 
 # Install gcloud
 ENV CLOUDSDK_CORE_DISABLE_PROMPTS 1
+ENV CLOUDSDK_CORE_CUSTOM_CA_CERTS_FILE /etc/ssl/certs/ca-certificates.crt
 RUN curl -sSL https://sdk.cloud.google.com | bash
 ENV PATH $PATH:/root/google-cloud-sdk/bin
 
@@ -52,3 +61,5 @@ RUN wget -O ghtoken \
   shasum -c - && \
   chmod u+x ./ghtoken && \
   mv ./ghtoken /usr/local/bin/ghtoken
+
+RUN /usr/bin/python3 /usr/local/lib/ci-trust/verify.py verify --rustup

@@ -7,6 +7,11 @@ groups:
   - bump-shared-files-in-blink-fiat
   - bump-shared-files-in-blink-circles
   - bump-shared-files-in-blink-card
+  - bump-shared-files-in-blink-lnurl-server
+  - bump-shared-files-in-stablesats-rs
+  - bump-shared-files-in-symphony
+  - bump-shared-files-in-blink-admin-panel-private
+  - bump-shared-files-in-blink-terminal
 - name: images
   jobs:
   - build-rust-concourse-image
@@ -37,13 +42,14 @@ jobs:
       run:
         path: /kaniko/executor
         args:
-        - --dockerfile=Dockerfile
-        - --context=rust-image-def/images/rust-concourse
+        - --dockerfile=images/rust-concourse/Dockerfile
+        - --context=rust-image-def
         - --use-new-run
         - --single-snapshot
         - --cache=false
         - --no-push
         - --tar-path=image/image.tar
+        - --digest-file=image/digest
   - put: rust-image
     params:
       image: image/image.tar
@@ -67,13 +73,14 @@ jobs:
       run:
         path: /kaniko/executor
         args:
-        - --dockerfile=Dockerfile
-        - --context=nodejs-image-def/images/nodejs-concourse
+        - --dockerfile=images/nodejs-concourse/Dockerfile
+        - --context=nodejs-image-def
         - --use-new-run
         - --single-snapshot
         - --cache=false
         - --no-push
         - --tar-path=image/image.tar
+        - --digest-file=image/digest
   - put: nodejs-image
     params:
       image: image/image.tar
@@ -97,13 +104,14 @@ jobs:
       run:
         path: /kaniko/executor
         args:
-        - --dockerfile=Dockerfile
-        - --context=release-pipeline-image-def/images/release
+        - --dockerfile=images/release/Dockerfile
+        - --context=release-pipeline-image-def
         - --use-new-run
         - --single-snapshot
         - --cache=false
         - --no-push
         - --tar-path=image/image.tar
+        - --digest-file=image/digest
   - put: release-pipeline-image
     params:
       image: image/image.tar
@@ -127,13 +135,14 @@ jobs:
       run:
         path: /kaniko/executor
         args:
-        - --dockerfile=Dockerfile
-        - --context=wincross-pipeline-image-def/images/wincross
+        - --dockerfile=images/wincross/Dockerfile
+        - --context=wincross-pipeline-image-def
         - --use-new-run
         - --single-snapshot
         - --cache=false
         - --no-push
         - --tar-path=image/image.tar
+        - --digest-file=image/digest
   - put: wincross-pipeline-image
     params:
       image: image/image.tar
@@ -461,6 +470,281 @@ jobs:
         GH_APP_PRIVATE_KEY: ((github-blinkbitcoin.github_app_private_key))
       run:
         path: pipeline-tasks/ci/tasks/open-pr.sh
+- name: bump-shared-files-in-blink-lnurl-server
+  plan:
+  - in_parallel:
+    - get: shared-files
+      trigger: true
+    - get: pipeline-tasks
+    - get: blink-lnurl-server-repo
+  - task: bump-shared-files-blink-lnurl-server
+    config:
+      platform: linux
+      image_resource:
+        type: registry-image
+        source:
+          username: ((docker-creds.username))
+          password: ((docker-creds.password))
+          repository: us.gcr.io/galoy-org/galoy-deployments-pipeline
+      inputs:
+      - name: shared-files
+        path: repo
+      - name: pipeline-tasks
+      - name: blink-lnurl-server-repo
+        path: source-repo
+      outputs:
+      - name: source-repo
+      params:
+        FEATURES:
+        - rust
+        - docker
+        - chart
+      run:
+        path: pipeline-tasks/ci/tasks/bump-shared-files.sh
+  - put: blink-lnurl-server-pr-branch
+    params:
+      repository: source-repo
+      force: true
+  - task: open-source-pr
+    config:
+      platform: linux
+      image_resource:
+        type: registry-image
+        source:
+          username: ((docker-creds.username))
+          password: ((docker-creds.password))
+          repository: us.gcr.io/galoy-org/galoy-deployments-pipeline
+      inputs:
+      - name: pipeline-tasks
+      - name: blink-lnurl-server-repo
+        path: source-repo
+      params:
+        PR_BRANCH: bump-shared-tasks
+        BRANCH: main
+        GH_APP_ID: ((github-blinkbitcoin.github_app_id))
+        GH_APP_PRIVATE_KEY: ((github-blinkbitcoin.github_app_private_key))
+      run:
+        path: pipeline-tasks/ci/tasks/open-pr.sh
+- name: bump-shared-files-in-stablesats-rs
+  plan:
+  - in_parallel:
+    - get: shared-files
+      trigger: true
+    - get: pipeline-tasks
+    - get: stablesats-rs-repo
+  - task: bump-shared-files-stablesats-rs
+    config:
+      platform: linux
+      image_resource:
+        type: registry-image
+        source:
+          username: ((docker-creds.username))
+          password: ((docker-creds.password))
+          repository: us.gcr.io/galoy-org/galoy-deployments-pipeline
+      inputs:
+      - name: shared-files
+        path: repo
+      - name: pipeline-tasks
+      - name: stablesats-rs-repo
+        path: source-repo
+      outputs:
+      - name: source-repo
+      params:
+        FEATURES:
+        - rust
+        - docker
+        - chart
+      run:
+        path: pipeline-tasks/ci/tasks/bump-shared-files.sh
+  - put: stablesats-rs-pr-branch
+    params:
+      repository: source-repo
+      force: true
+  - task: open-source-pr
+    config:
+      platform: linux
+      image_resource:
+        type: registry-image
+        source:
+          username: ((docker-creds.username))
+          password: ((docker-creds.password))
+          repository: us.gcr.io/galoy-org/galoy-deployments-pipeline
+      inputs:
+      - name: pipeline-tasks
+      - name: stablesats-rs-repo
+        path: source-repo
+      params:
+        PR_BRANCH: bump-shared-tasks
+        BRANCH: main
+        GH_APP_ID: ((github-blinkbitcoin.github_app_id))
+        GH_APP_PRIVATE_KEY: ((github-blinkbitcoin.github_app_private_key))
+      run:
+        path: pipeline-tasks/ci/tasks/open-pr.sh
+- name: bump-shared-files-in-symphony
+  plan:
+  - in_parallel:
+    - get: shared-files
+      trigger: true
+    - get: pipeline-tasks
+    - get: symphony-repo
+  - task: bump-shared-files-symphony
+    config:
+      platform: linux
+      image_resource:
+        type: registry-image
+        source:
+          username: ((docker-creds.username))
+          password: ((docker-creds.password))
+          repository: us.gcr.io/galoy-org/galoy-deployments-pipeline
+      inputs:
+      - name: shared-files
+        path: repo
+      - name: pipeline-tasks
+      - name: symphony-repo
+        path: source-repo
+      outputs:
+      - name: source-repo
+      params:
+        FEATURES:
+        - rust
+        - docker
+        - chart
+      run:
+        path: pipeline-tasks/ci/tasks/bump-shared-files.sh
+  - put: symphony-pr-branch
+    params:
+      repository: source-repo
+      force: true
+  - task: open-source-pr
+    config:
+      platform: linux
+      image_resource:
+        type: registry-image
+        source:
+          username: ((docker-creds.username))
+          password: ((docker-creds.password))
+          repository: us.gcr.io/galoy-org/galoy-deployments-pipeline
+      inputs:
+      - name: pipeline-tasks
+      - name: symphony-repo
+        path: source-repo
+      params:
+        PR_BRANCH: bump-shared-tasks
+        BRANCH: main
+        GH_APP_ID: ((github-blinkbitcoin.github_app_id))
+        GH_APP_PRIVATE_KEY: ((github-blinkbitcoin.github_app_private_key))
+      run:
+        path: pipeline-tasks/ci/tasks/open-pr.sh
+- name: bump-shared-files-in-blink-admin-panel-private
+  plan:
+  - in_parallel:
+    - get: shared-files
+      trigger: true
+    - get: pipeline-tasks
+    - get: blink-admin-panel-private-repo
+  - task: bump-shared-files-blink-admin-panel-private
+    config:
+      platform: linux
+      image_resource:
+        type: registry-image
+        source:
+          username: ((docker-creds.username))
+          password: ((docker-creds.password))
+          repository: us.gcr.io/galoy-org/galoy-deployments-pipeline
+      inputs:
+      - name: shared-files
+        path: repo
+      - name: pipeline-tasks
+      - name: blink-admin-panel-private-repo
+        path: source-repo
+      outputs:
+      - name: source-repo
+      params:
+        FEATURES:
+        - nodejs
+        - docker
+        - chart
+      run:
+        path: pipeline-tasks/ci/tasks/bump-shared-files.sh
+  - put: blink-admin-panel-private-pr-branch
+    params:
+      repository: source-repo
+      force: true
+  - task: open-source-pr
+    config:
+      platform: linux
+      image_resource:
+        type: registry-image
+        source:
+          username: ((docker-creds.username))
+          password: ((docker-creds.password))
+          repository: us.gcr.io/galoy-org/galoy-deployments-pipeline
+      inputs:
+      - name: pipeline-tasks
+      - name: blink-admin-panel-private-repo
+        path: source-repo
+      params:
+        PR_BRANCH: bump-shared-tasks
+        BRANCH: main
+        GH_APP_ID: ((github-blinkbitcoin.github_app_id))
+        GH_APP_PRIVATE_KEY: ((github-blinkbitcoin.github_app_private_key))
+      run:
+        path: pipeline-tasks/ci/tasks/open-pr.sh
+- name: bump-shared-files-in-blink-terminal
+  plan:
+  - in_parallel:
+    - get: shared-files
+      trigger: true
+    - get: pipeline-tasks
+    - get: blink-terminal-repo
+  - task: bump-shared-files-blink-terminal
+    config:
+      platform: linux
+      image_resource:
+        type: registry-image
+        source:
+          username: ((docker-creds.username))
+          password: ((docker-creds.password))
+          repository: us.gcr.io/galoy-org/galoy-deployments-pipeline
+      inputs:
+      - name: shared-files
+        path: repo
+      - name: pipeline-tasks
+      - name: blink-terminal-repo
+        path: source-repo
+      outputs:
+      - name: source-repo
+      params:
+        FEATURES:
+        - nodejs
+        - docker
+        - chart
+      run:
+        path: pipeline-tasks/ci/tasks/bump-shared-files.sh
+  - put: blink-terminal-pr-branch
+    params:
+      repository: source-repo
+      force: true
+  - task: open-source-pr
+    config:
+      platform: linux
+      image_resource:
+        type: registry-image
+        source:
+          username: ((docker-creds.username))
+          password: ((docker-creds.password))
+          repository: us.gcr.io/galoy-org/galoy-deployments-pipeline
+      inputs:
+      - name: pipeline-tasks
+      - name: blink-terminal-repo
+        path: source-repo
+      params:
+        PR_BRANCH: bump-shared-tasks
+        BRANCH: main
+        GH_APP_ID: ((github-blinkbitcoin.github_app_id))
+        GH_APP_PRIVATE_KEY: ((github-blinkbitcoin.github_app_private_key))
+      run:
+        path: pipeline-tasks/ci/tasks/open-pr.sh
 - name: backup-org-to-gcp
   plan:
   - in_parallel:
@@ -540,6 +824,36 @@ resources:
     uri: git@github.com:blinkbitcoin/blink-card.git
     private_key: ((github-blinkbitcoin.private_key))
     branch: bump-shared-tasks
+- name: blink-lnurl-server-pr-branch
+  type: git
+  source:
+    uri: git@github.com:blinkbitcoin/blink-lnurl-server.git
+    private_key: ((github-blinkbitcoin.private_key))
+    branch: bump-shared-tasks
+- name: stablesats-rs-pr-branch
+  type: git
+  source:
+    uri: git@github.com:blinkbitcoin/stablesats-rs.git
+    private_key: ((github-blinkbitcoin.private_key))
+    branch: bump-shared-tasks
+- name: symphony-pr-branch
+  type: git
+  source:
+    uri: git@github.com:blinkbitcoin/symphony.git
+    private_key: ((github-blinkbitcoin.private_key))
+    branch: bump-shared-tasks
+- name: blink-admin-panel-private-pr-branch
+  type: git
+  source:
+    uri: git@github.com:blinkbitcoin/blink-admin-panel-private.git
+    private_key: ((github-blinkbitcoin.private_key))
+    branch: bump-shared-tasks
+- name: blink-terminal-pr-branch
+  type: git
+  source:
+    uri: git@github.com:blinkbitcoin/blink-terminal.git
+    private_key: ((github-blinkbitcoin.private_key))
+    branch: bump-shared-tasks
 - name: mavapay-client-repo
   type: git
   source:
@@ -576,11 +890,42 @@ resources:
     uri: git@github.com:blinkbitcoin/blink-card.git
     private_key: ((github-blinkbitcoin.private_key))
     branch: main
+- name: blink-lnurl-server-repo
+  type: git
+  source:
+    uri: git@github.com:blinkbitcoin/blink-lnurl-server.git
+    private_key: ((github-blinkbitcoin.private_key))
+    branch: main
+- name: stablesats-rs-repo
+  type: git
+  source:
+    uri: git@github.com:blinkbitcoin/stablesats-rs.git
+    private_key: ((github-blinkbitcoin.private_key))
+    branch: main
+- name: symphony-repo
+  type: git
+  source:
+    uri: git@github.com:blinkbitcoin/symphony.git
+    private_key: ((github-blinkbitcoin.private_key))
+    branch: main
+- name: blink-admin-panel-private-repo
+  type: git
+  source:
+    uri: git@github.com:blinkbitcoin/blink-admin-panel-private.git
+    private_key: ((github-blinkbitcoin.private_key))
+    branch: main
+- name: blink-terminal-repo
+  type: git
+  source:
+    uri: git@github.com:blinkbitcoin/blink-terminal.git
+    private_key: ((github-blinkbitcoin.private_key))
+    branch: main
 - name: nodejs-image-def
   type: git
   source:
     paths:
     - images/nodejs-concourse/Dockerfile
+    - images/trust/*
     uri: git@github.com:blinkbitcoin/concourse-shared.git
     branch: main
     private_key: ((github-blinkbitcoin.private_key))
@@ -596,6 +941,7 @@ resources:
   source:
     paths:
     - images/rust-concourse/Dockerfile
+    - images/trust/*
     uri: git@github.com:blinkbitcoin/concourse-shared.git
     branch: main
     private_key: ((github-blinkbitcoin.private_key))
@@ -618,6 +964,7 @@ resources:
   source:
     paths:
     - images/release/Dockerfile
+    - images/trust/*
     uri: git@github.com:blinkbitcoin/concourse-shared.git
     branch: main
     private_key: ((github-blinkbitcoin.private_key))
@@ -633,6 +980,7 @@ resources:
   source:
     paths:
     - images/wincross/Dockerfile
+    - images/trust/*
     uri: git@github.com:blinkbitcoin/concourse-shared.git
     branch: main
     private_key: ((github-blinkbitcoin.private_key))

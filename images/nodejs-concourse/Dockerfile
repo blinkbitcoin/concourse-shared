@@ -1,4 +1,12 @@
-FROM node:24-bookworm
+FROM node:24.22.1-bookworm@sha256:6449e19d8184d84062525b6a7524def03146c2cb04a7f08b076680d0e8e4240a AS trust-base
+
+# Build from the repository root so all images use the same admission gate.
+COPY images/trust /usr/local/lib/ci-trust
+RUN apt-get -o APT::Update::Error-Mode=any update \
+  && apt-get install -y --no-remove --no-install-recommends python3 ca-certificates curl \
+  && /usr/bin/python3 /usr/local/lib/ci-trust/verify.py refresh --node
+
+FROM trust-base AS final
 
 RUN npm i --global @graphql-inspector/cli graphql
 RUN npm install -g pnpm
@@ -22,6 +30,7 @@ RUN mkdir -p /usr/local/lib/docker/cli-plugins \
 
 # Install gcloud
 ENV CLOUDSDK_CORE_DISABLE_PROMPTS 1
+ENV CLOUDSDK_CORE_CUSTOM_CA_CERTS_FILE /etc/ssl/certs/ca-certificates.crt
 RUN curl -sSL https://sdk.cloud.google.com | bash
 ENV PATH $PATH:/root/google-cloud-sdk/bin
 
@@ -52,3 +61,5 @@ RUN wget https://github.com/mike-engel/jwt-cli/releases/download/4.0.0/jwt-linux
   && shasum --check --status ./jwt-linux.sha256 \
   && tar -xzf jwt-linux.tar.gz \
   && mv jwt /usr/local/bin/jwt
+
+RUN /usr/bin/python3 /usr/local/lib/ci-trust/verify.py verify --node

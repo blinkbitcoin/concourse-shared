@@ -36,7 +36,7 @@ groups:
   jobs:
   - backup-org-to-gcp
 
-#@ def build_task(input_name, context_path):
+#@ def build_task(input_name, dockerfile):
 task: build
 config:
   platform: linux
@@ -52,13 +52,14 @@ config:
   run:
     path: /kaniko/executor
     args:
-      - --dockerfile=Dockerfile
-      - #@ "--context=" + context_path
+      - #@ "--dockerfile=" + dockerfile
+      - #@ "--context=" + input_name
       - --use-new-run
       - --single-snapshot
       - --cache=false
       - --no-push
       - --tar-path=image/image.tar
+      - --digest-file=image/digest
 #@ end
 
 jobs:
@@ -66,7 +67,7 @@ jobs:
   serial: true
   plan:
   - {get: rust-image-def, trigger: true}
-  - #@ build_task("rust-image-def", "rust-image-def/images/rust-concourse")
+  - #@ build_task("rust-image-def", "images/rust-concourse/Dockerfile")
   - put: rust-image
     params:
       image: image/image.tar
@@ -75,7 +76,7 @@ jobs:
   serial: true
   plan:
   - {get: nodejs-image-def, trigger: true}
-  - #@ build_task("nodejs-image-def", "nodejs-image-def/images/nodejs-concourse")
+  - #@ build_task("nodejs-image-def", "images/nodejs-concourse/Dockerfile")
   - put: nodejs-image
     params:
       image: image/image.tar
@@ -85,7 +86,7 @@ jobs:
   plan:
   - get: release-pipeline-image-def
     trigger: true
-  - #@ build_task("release-pipeline-image-def", "release-pipeline-image-def/images/release")
+  - #@ build_task("release-pipeline-image-def", "images/release/Dockerfile")
   - put: release-pipeline-image
     params:
       image: image/image.tar
@@ -95,7 +96,7 @@ jobs:
   plan:
   - get: wincross-pipeline-image-def
     trigger: true
-  - #@ build_task("wincross-pipeline-image-def", "wincross-pipeline-image-def/images/wincross")
+  - #@ build_task("wincross-pipeline-image-def", "images/wincross/Dockerfile")
   - put: wincross-pipeline-image
     params:
       image: image/image.tar
@@ -209,7 +210,7 @@ resources:
 - name: nodejs-image-def
   type: git
   source:
-    paths: [images/nodejs-concourse/Dockerfile]
+    paths: [images/nodejs-concourse/Dockerfile, images/trust/*]
     uri: #@ data.values.git_uri
     branch: #@ data.values.git_branch
     private_key: #@ data.values.github_private_key
@@ -225,7 +226,7 @@ resources:
 - name: rust-image-def
   type: git
   source:
-    paths: [images/rust-concourse/Dockerfile]
+    paths: [images/rust-concourse/Dockerfile, images/trust/*]
     uri: #@ data.values.git_uri
     branch: #@ data.values.git_branch
     private_key: #@ data.values.github_private_key
@@ -249,7 +250,7 @@ resources:
 - name: release-pipeline-image-def
   type: git
   source:
-    paths: [images/release/Dockerfile]
+    paths: [images/release/Dockerfile, images/trust/*]
     uri: #@ data.values.git_uri
     branch: #@ data.values.git_branch
     private_key: #@ data.values.github_private_key
@@ -265,7 +266,7 @@ resources:
 - name: wincross-pipeline-image-def
   type: git
   source:
-    paths: [images/wincross/Dockerfile]
+    paths: [images/wincross/Dockerfile, images/trust/*]
     uri: #@ data.values.git_uri
     branch: #@ data.values.git_branch
     private_key: #@ data.values.github_private_key
