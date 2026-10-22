@@ -13,7 +13,9 @@ RUN rustc --version
 RUN rustup component add rustfmt
 RUN rustup component add clippy
 
-RUN cargo install cargo-nextest cargo-deny cargo-audit typos-cli sqlx-cli handlebars-cli
+# Nextest requires its published lockfile; this release includes the TLS fixes.
+RUN cargo install --locked cargo-nextest --version 0.9.149
+RUN cargo install cargo-deny cargo-audit typos-cli sqlx-cli handlebars-cli
 
 # Install gcloud
 ENV CLOUDSDK_CORE_DISABLE_PROMPTS 1
