@@ -1,4 +1,12 @@
-FROM python:3.8-buster
+FROM python:3.11-bookworm@sha256:18d373e126e39c29c6d38e71e2f19ca66636568318fc95c7849c462b7f9d3d64 AS trust-base
+
+# Build from the repository root so all images use the same admission gate.
+COPY images/trust /usr/local/lib/ci-trust
+RUN apt-get -o APT::Update::Error-Mode=any update \
+  && apt-get install -y --no-remove --no-install-recommends python3 ca-certificates curl \
+  && /usr/bin/python3 /usr/local/lib/ci-trust/verify.py refresh
+
+FROM trust-base AS final
 
 RUN apt-get update \
   && apt-get install -y bash curl wget tar git gettext jq perl \
@@ -42,7 +50,9 @@ RUN helm repo add bitnami https://charts.bitnami.com/bitnami
 RUN git config --global user.email "202112752+blinkbitcoinbot@users.noreply.github.com" \
   && git config --global user.name "CI blinkbitcoinbot"
 
-RUN pip install --upgrade bump2version
+# Explicit system trust bootstraps pip's separately bundled CA update.
+RUN python -m pip install --cert /etc/ssl/certs/ca-certificates.crt --upgrade pip==26.2.2 certifi==2026.10.19 \
+  && python -m pip install --upgrade bump2version
 
 ENV GH_CLI_VERSION 2.23.0
 RUN mkdir ghcli && cd ghcli \
@@ -70,5 +80,8 @@ RUN wget https://github.com/mike-engel/jwt-cli/releases/download/4.0.0/jwt-linux
 RUN wget -O- https://carvel.dev/install.sh | bash
 
 ENV CLOUDSDK_CORE_DISABLE_PROMPTS 1
+ENV CLOUDSDK_CORE_CUSTOM_CA_CERTS_FILE /etc/ssl/certs/ca-certificates.crt
 RUN curl -sSL https://sdk.cloud.google.com | bash
 ENV PATH $PATH:/root/google-cloud-sdk/bin
+
+RUN /usr/bin/python3 /usr/local/lib/ci-trust/verify.py verify

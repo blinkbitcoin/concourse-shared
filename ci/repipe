@@ -13,7 +13,7 @@ team=dev
 BUILDDIR="./ci/build"
 mkdir -p $BUILDDIR
 
-ytt -f ci > ${BUILDDIR}/pipeline.yml
+ytt -f ci/pipeline.yml -f ci/values.yml > ${BUILDDIR}/pipeline.yml
 
 echo "Updating pipeline @ ${target}"
 

@@ -20,11 +20,17 @@ source:
 #@   return repo_name + "-repo"
 #@ end
 
+#@ def enabled_repos():
+#@   return data.values.src_repos if data.values.enable_shared_file_updates else {}
+#@ end
+
 groups:
+#@ if data.values.enable_shared_file_updates:
 - name: bump-shared-files
   jobs:
-#@ for repo in data.values.src_repos:
+#@ for repo in enabled_repos():
   - #@ "bump-shared-files-in-" + repo
+#@ end
 #@ end
 - name: images
   jobs:
@@ -36,7 +42,7 @@ groups:
   jobs:
   - backup-org-to-gcp
 
-#@ def build_task(input_name, context_path):
+#@ def build_task(input_name, dockerfile):
 task: build
 config:
   platform: linux
@@ -44,21 +50,46 @@ config:
     type: registry-image
     source:
       repository: gcr.io/kaniko-project/executor
-      tag: debug
+      tag: v1.24.0-debug
+    version:
+      digest: sha256:2562c4fe551399514277ffff7dcca9a3b1628c4ea38cb017d7286dc6ea52f4cd
   inputs:
   - name: #@ input_name
   outputs:
   - name: image
   run:
-    path: /kaniko/executor
+    path: /busybox/sh
     args:
-      - --dockerfile=Dockerfile
-      - #@ "--context=" + context_path
-      - --use-new-run
-      - --single-snapshot
-      - --cache=false
-      - --no-push
-      - --tar-path=image/image.tar
+    - -ec
+    - #@ "/kaniko/executor --dockerfile=" + dockerfile + " --context=" + input_name + " --use-new-run --single-snapshot --cache=false --no-push --tar-path=image/image.tar --digest-file=image/digest && digest=$(cat image/digest) && echo \"$digest\" | grep -Eq '^sha256:[0-9a-f]{64}$' && printf 'sha256-%s\\n' \"${digest#sha256:}\" > image/tags && cat image/digest"
+#@ end
+
+#@ def registry_proof(input_name, image_name, repository, mode):
+task: #@ "registry-" + mode
+config:
+  platform: linux
+  image_resource:
+    type: registry-image
+    source:
+      repository: python
+      tag: 3.11-bookworm
+    version:
+      digest: sha256:18d373e126e39c29c6d38e71e2f19ca66636568318fc95c7849c462b7f9d3d64
+  inputs:
+  - name: #@ input_name
+  #@ if mode == "verify":
+  - name: image
+  - name: #@ image_name
+  - name: previous
+  #@ end
+  outputs:
+  - name: #@ "previous" if mode == "snapshot" else "registry-proof"
+  params:
+    REGISTRY_USERNAME: #@ data.values.docker_registry_user
+    REGISTRY_PASSWORD: #@ data.values.docker_registry_password
+  run:
+    path: python3
+    args: #@ [input_name + "/images/trust/registry-proof.py", mode, data.values.docker_registry + "/" + repository, "trust-candidate", "previous/digest.json" if mode == "snapshot" else "registry-proof/digests.json"] + ([] if mode == "snapshot" else ["image/digest", image_name + "/digest", "previous/digest.json"])
 #@ end
 
 jobs:
@@ -66,42 +97,58 @@ jobs:
   serial: true
   plan:
   - {get: rust-image-def, trigger: true}
-  - #@ build_task("rust-image-def", "rust-image-def/images/rust-concourse")
+  - #@ build_task("rust-image-def", "images/rust-concourse/Dockerfile")
+  - #@ registry_proof("rust-image-def", "rust-image", "rust-concourse", "snapshot")
   - put: rust-image
+    get_params: {skip_download: true}
     params:
       image: image/image.tar
+      additional_tags: image/tags
+  - #@ registry_proof("rust-image-def", "rust-image", "rust-concourse", "verify")
 
 - name: build-nodejs-concourse-image
   serial: true
   plan:
   - {get: nodejs-image-def, trigger: true}
-  - #@ build_task("nodejs-image-def", "nodejs-image-def/images/nodejs-concourse")
+  - #@ build_task("nodejs-image-def", "images/nodejs-concourse/Dockerfile")
+  - #@ registry_proof("nodejs-image-def", "nodejs-image", "nodejs-concourse", "snapshot")
   - put: nodejs-image
+    get_params: {skip_download: true}
     params:
       image: image/image.tar
+      additional_tags: image/tags
+  - #@ registry_proof("nodejs-image-def", "nodejs-image", "nodejs-concourse", "verify")
 
 - name: build-release-pipeline-image
   serial: true
   plan:
   - get: release-pipeline-image-def
     trigger: true
-  - #@ build_task("release-pipeline-image-def", "release-pipeline-image-def/images/release")
+  - #@ build_task("release-pipeline-image-def", "images/release/Dockerfile")
+  - #@ registry_proof("release-pipeline-image-def", "release-pipeline-image", "release-pipeline", "snapshot")
   - put: release-pipeline-image
+    get_params: {skip_download: true}
     params:
       image: image/image.tar
+      additional_tags: image/tags
+  - #@ registry_proof("release-pipeline-image-def", "release-pipeline-image", "release-pipeline", "verify")
 
 - name: build-wincross-pipeline-image
   serial: true
   plan:
   - get: wincross-pipeline-image-def
     trigger: true
-  - #@ build_task("wincross-pipeline-image-def", "wincross-pipeline-image-def/images/wincross")
+  - #@ build_task("wincross-pipeline-image-def", "images/wincross/Dockerfile")
+  - #@ registry_proof("wincross-pipeline-image-def", "wincross-pipeline-image", "wincross-rust", "snapshot")
   - put: wincross-pipeline-image
+    get_params: {skip_download: true}
     params:
       image: image/image.tar
+      additional_tags: image/tags
+  - #@ registry_proof("wincross-pipeline-image-def", "wincross-pipeline-image", "wincross-rust", "verify")
 
 
-#@ for repo in data.values.src_repos:
+#@ for repo in enabled_repos():
 - name: #@ "bump-shared-files-in-" + repo
   plan:
   - in_parallel:
@@ -168,6 +215,7 @@ jobs:
         path: pipeline-tasks/ci/tasks/gcp-backup.sh
 
 resources:
+#@ if data.values.enable_shared_file_updates:
 - name: shared-files
   type: git
   webhook_token: ((webhook.secret))
@@ -180,6 +228,7 @@ resources:
     branch: #@ data.values.git_branch
     private_key: #@ data.values.github_private_key
 
+#@ end
 - name: pipeline-tasks
   type: git
   source:
@@ -188,7 +237,7 @@ resources:
     branch: #@ data.values.git_branch
     private_key: #@ data.values.github_private_key
 
-#@ for repo in data.values.src_repos:
+#@ for repo in enabled_repos():
 - name: #@ repo_pr_branch_resource_name(repo)
   type: git
   source:
@@ -197,7 +246,7 @@ resources:
     branch: #@ data.values.pr_branch
 #@ end
 
-#@ for repo in data.values.src_repos:
+#@ for repo in enabled_repos():
 - name: #@ repo_resource_name(repo)
   type: git
   source:
@@ -209,7 +258,7 @@ resources:
 - name: nodejs-image-def
   type: git
   source:
-    paths: [images/nodejs-concourse/Dockerfile]
+    paths: [images/nodejs-concourse/Dockerfile, images/trust/*]
     uri: #@ data.values.git_uri
     branch: #@ data.values.git_branch
     private_key: #@ data.values.github_private_key
@@ -217,7 +266,7 @@ resources:
 - name: nodejs-image
   type: registry-image
   source:
-    tag: latest
+    tag: trust-candidate
     username: #@ data.values.docker_registry_user
     password: #@ data.values.docker_registry_password
     repository: #@ data.values.docker_registry + "/nodejs-concourse"
@@ -225,7 +274,7 @@ resources:
 - name: rust-image-def
   type: git
   source:
-    paths: [images/rust-concourse/Dockerfile]
+    paths: [images/rust-concourse/Dockerfile, images/trust/*]
     uri: #@ data.values.git_uri
     branch: #@ data.values.git_branch
     private_key: #@ data.values.github_private_key
@@ -233,7 +282,7 @@ resources:
 - name: rust-image
   type: registry-image
   source:
-    tag: latest
+    tag: trust-candidate
     username: #@ data.values.docker_registry_user
     password: #@ data.values.docker_registry_password
     repository: #@ data.values.docker_registry + "/rust-concourse"
@@ -241,7 +290,7 @@ resources:
 - name: release-pipeline-image
   type: registry-image
   source:
-    tag: latest
+    tag: trust-candidate
     username: #@ data.values.docker_registry_user
     password: #@ data.values.docker_registry_password
     repository: #@   data.values.docker_registry + "/release-pipeline"
@@ -249,7 +298,7 @@ resources:
 - name: release-pipeline-image-def
   type: git
   source:
-    paths: [images/release/Dockerfile]
+    paths: [images/release/Dockerfile, images/trust/*]
     uri: #@ data.values.git_uri
     branch: #@ data.values.git_branch
     private_key: #@ data.values.github_private_key
@@ -257,7 +306,7 @@ resources:
 - name: wincross-pipeline-image
   type: registry-image
   source:
-    tag: latest
+    tag: trust-candidate
     username: #@ data.values.docker_registry_user
     password: #@ data.values.docker_registry_password
     repository: #@   data.values.docker_registry + "/wincross-rust"
@@ -265,7 +314,7 @@ resources:
 - name: wincross-pipeline-image-def
   type: git
   source:
-    paths: [images/wincross/Dockerfile]
+    paths: [images/wincross/Dockerfile, images/trust/*]
     uri: #@ data.values.git_uri
     branch: #@ data.values.git_branch
     private_key: #@ data.values.github_private_key
