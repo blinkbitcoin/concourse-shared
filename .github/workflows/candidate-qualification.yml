@@ -1,0 +1,71 @@
+name: Published candidate qualification
+'on':
+  pull_request:
+    paths:
+      - '.github/workflows/candidate-qualification.yml'
+      - 'qualification/**'
+      - 'tests/test_candidate_clients.py'
+permissions:
+  contents: read
+jobs:
+  contracts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 -m unittest discover -s tests -p test_candidate_clients.py -v
+  candidate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - profile: node
+            repository: nodejs-concourse
+            digest: sha256:8e9d5591bc55697df061390c745c422958370cf714e00249b78d4784fee7d6a6
+            verifier: --node
+          - profile: rust
+            repository: rust-concourse
+            digest: sha256:e4b78a672d0d4521a370d675b55215874148cecee311d154279ed0d35bf11e8b
+            verifier: --rustup
+          - profile: release
+            repository: release-pipeline
+            digest: sha256:7d6b62ac98f82b5ab8d66a9652e21e8c68506d63f3c9ce68ab5d1bbef87c22d6
+            verifier: ''
+          - profile: wincross
+            repository: wincross-rust
+            digest: sha256:8a7a354f24f541bc1330f5d207acb0cabcf8f5a1d30178313876e36f9c751718
+            verifier: --rustup
+    env:
+      IMAGE: us.gcr.io/galoy-org/${{ matrix.repository }}@${{ matrix.digest }}
+      PROFILE: ${{ matrix.profile }}
+      VERIFIER: ${{ matrix.verifier }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Resolve the exact published artifact
+        run: |
+          mkdir receipts
+          docker pull --platform linux/amd64 "$IMAGE"
+          docker image inspect "$IMAGE" --format '{{json .RepoDigests}}' > receipts/resolved-digests.json
+          python3 -c 'import json,os; assert os.environ["IMAGE"] in json.load(open("receipts/resolved-digests.json"))'
+      - name: Recheck the artifact's own trust gates
+        run: |
+          set -o pipefail
+          args=()
+          if [ -n "$VERIFIER" ]; then args+=("$VERIFIER"); fi
+          docker run --rm --platform linux/amd64 --entrypoint /usr/bin/python3 \
+            "$IMAGE" /usr/local/lib/ci-trust/verify.py verify "${args[@]}" \
+            2>&1 | tee receipts/artifact-trust.log
+      - name: Qualify installed clients without credentials
+        run: |
+          set -o pipefail
+          docker run --rm --platform linux/amd64 --entrypoint python3 \
+            -v "$PWD/images/trust:/source/images/trust:ro" \
+            -v "$PWD/qualification:/source/qualification:ro" "$IMAGE" \
+            /source/qualification/clients.py qualify "$PROFILE" \
+            2>&1 | tee receipts/installed-clients.jsonl
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: candidate-${{ matrix.profile }}-receipts
+          path: receipts/
