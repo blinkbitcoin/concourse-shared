@@ -42,6 +42,13 @@ No token is generated, revoked or accepted by a real account. Buf reads a public
 protobuf source archive, and Cargo Audit fetches the public advisory database
 against an empty synthetic lockfile with yanked-crate lookup disabled.
 
+The pinned gh-token release writes its own errors to stdout, so its negative
+probe requires the local transport-error prefix as well as certificate distrust.
+It never prints non-200 response bodies. Its healthy control accepts only its
+exact 401/404 status diagnostic for the nonexistent synthetic app; this proves
+an HTTPS response, not authentication. Cargo Audit's generic I/O error remains
+inconclusive and fails qualification when its certificate cause is hidden.
+
 Chart-releaser runs its actual `index` command against a local public-repository
 fixture and synthetic chart package. It tests the GitHub release-read endpoint
 with `--git-base-url`; the healthy control reads the existing upstream v1.6.0

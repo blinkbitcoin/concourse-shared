@@ -54,6 +54,12 @@ class CandidateClientsTests(unittest.TestCase):
                                         negative=True))
         for response in ["HTTP 401", "HTTPError 403", "HTTP/1.1 500", "HTTP: 404"]:
             self.assertFalse(CLIENTS.accepted(1, response + ": " + CLIENTS.ISSUER_ERRORS[0], negative=True))
+        prefix = "Error: failed listing installations: unable to POST to https://example.test: "
+        self.assertTrue(CLIENTS.accepted(1, prefix + CLIENTS.ISSUER_ERRORS[0], negative=True,
+                                        auth_control="ghtoken"))
+        for output in [CLIENTS.ISSUER_ERRORS[0], prefix + "HTTP 500 " + CLIENTS.ISSUER_ERRORS[0],
+                       "Error: failed listing installations: unexpected status code: 404"]:
+            self.assertFalse(CLIENTS.accepted(1, output, negative=True, auth_control="ghtoken"))
 
     def test_healthy_classifier(self):
         self.assertTrue(CLIENTS.accepted(0, "ok"))
@@ -63,7 +69,8 @@ class CandidateClientsTests(unittest.TestCase):
             self.assertFalse(CLIENTS.accepted(code, text, auth_control="gh"))
         self.assertTrue(CLIENTS.accepted(1, "HTTP 401 Bad credentials", auth_control="gh"))
         for client, good in [("gcloud", "HTTPError 401: Invalid Credentials"),
-                             ("ghtoken", "GET https://api.github.com/app/installations: 401 A JSON web token could not be decoded")]:
+                             ("ghtoken", "Error: failed listing installations: unexpected status code: 401"),
+                             ("ghtoken", "Error: failed listing installations: unexpected status code: 404")]:
             self.assertTrue(CLIENTS.accepted(1, good, auth_control=client))
             for code, message in [(0, good), (1, "401"), (1, "not authenticated")]:
                 self.assertFalse(CLIENTS.accepted(code, message, auth_control=client))
@@ -130,6 +137,19 @@ class CandidateClientsTests(unittest.TestCase):
             self.assertEqual(len(rows), 2)
             self.assertEqual(len(rows[0]["negative"]), 12)
             self.assertFalse(rows[0]["healthy_authenticated"])
+
+    def test_ghtoken_stdout_diagnostics(self):
+        def execute(args, env, cwd, **kwargs):
+            if args[0] == "bad":
+                self.assertFalse(kwargs["stderr_only"])
+                return 1, ("Error: failed listing installations: unable to POST to https://example.test: "
+                           + CLIENTS.ISSUER_ERRORS[0])
+            if args[0] == "healthy":
+                return 1, "Error: failed listing installations: unexpected status code: 404"
+            return 0, "version"
+        with patch.object(CLIENTS, "commands", return_value={"ghtoken": (lambda host: ["bad"], ["healthy"])}), \
+             patch.object(CLIENTS, "execute", side_effect=execute), contextlib.redirect_stdout(io.StringIO()):
+            self.assertTrue(CLIENTS.qualify("node", Path("/tmp")))
 
     def test_synthetic_key_setup_failure_and_wincross_skip(self):
         with patch.object(CLIENTS, "execute", return_value=(1, "openssl failed")), \

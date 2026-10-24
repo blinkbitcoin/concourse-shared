@@ -56,6 +56,11 @@ def accepted(code, output, *, negative=False, auth_control=None):
     if code is None:
         return False
     if negative:
+        # gh-token v2.0.1 prints errors to stdout. Its non-200 path prints only
+        # a status code, never the response body; require its local error prefix.
+        if auth_control == "ghtoken" and not output.startswith(
+                "Error: failed listing installations: unable to POST to https://"):
+            return False
         message = output.lower()
         unrelated = ("certificate has expired", "certificate is expired", "not yet valid",
                      "hostname mismatch", "doesn't match", "does not match",
@@ -70,7 +75,10 @@ def accepted(code, output, *, negative=False, auth_control=None):
     if auth_control == "gcloud":
         return code != 0 and "HTTPError 401" in output and "Invalid Credentials" in output
     if auth_control == "ghtoken":
-        return code != 0 and ": 401 " in output and "JSON web token could not be decoded" in output
+        return code != 0 and output.strip() in (
+            "Error: failed listing installations: unexpected status code: 401",
+            "Error: failed listing installations: unexpected status code: 404",
+        )
     return code == 0
 
 
@@ -183,9 +191,9 @@ def qualify(profile, home):
         version_code, version = execute(version_command, env, working)
         results = []
         for host in HOSTS:
-            code, output = execute(negative_command(host), env, working, stderr_only=True)
+            code, output = execute(negative_command(host), env, working, stderr_only=client != "ghtoken")
             results.append({"host": host, "exit": code, "diagnostic": output[-600:],
-                            "distrusted": accepted(code, output, negative=True)})
+                            "distrusted": accepted(code, output, negative=True, auth_control=client)})
         code, output = execute(healthy_command, env, working)
         healthy = accepted(code, output, auth_control=client)
         good = version_code == 0 and all(row["distrusted"] for row in results) and healthy
