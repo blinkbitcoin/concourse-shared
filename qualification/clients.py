@@ -37,6 +37,7 @@ def environment(home):
         "CLOUDSDK_CORE_CUSTOM_CA_CERTS_FILE": "/etc/ssl/certs/ca-certificates.crt",
         "CLOUDSDK_CORE_DISABLE_PROMPTS": "1",
         "CLOUDSDK_CORE_DISABLE_USAGE_REPORTING": "true",
+        "CLOUDSDK_STORAGE_MAX_RETRIES": "0",
     }
 
 

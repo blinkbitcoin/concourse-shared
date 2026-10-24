@@ -32,7 +32,9 @@ only. It does not qualify authenticated GitHub access. No real credentials are
 sent to public test endpoints.
 
 gcloud also uses a literal dummy access token and the image's configured system
-CA path. Its storage endpoint override exercises the installed SDK against each
+CA path. Storage retries are disabled so an expected certificate rejection is
+reported directly instead of exhausting the probe timeout. Its storage endpoint
+override exercises the installed SDK against each
 negative fixture; the normal API's explicit HTTP401 response is a TLS-only
 control. gh-token lists installations using a temporary synthetic RSA key that
 belongs to no GitHub App. Its expected invalid-JWT response is likewise TLS-only.

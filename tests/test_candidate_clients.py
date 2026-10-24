@@ -25,6 +25,7 @@ class CandidateClientsTests(unittest.TestCase):
         self.assertNotIn("HTTPS_PROXY", env)
         self.assertEqual(env["GH_TOKEN"], CLIENTS.DUMMY_TOKEN)
         self.assertEqual(env["HOME"], "/tmp/sandbox")
+        self.assertEqual(env["CLOUDSDK_STORAGE_MAX_RETRIES"], "0")
 
     def test_execute(self):
         with patch.object(CLIENTS.subprocess, "run", return_value=types.SimpleNamespace(
