@@ -29,10 +29,37 @@ jobs:
       outputs:
       - name: image
       run:
-        path: /busybox/sh
+        path: /kaniko/executor
         args:
-        - -ec
-        - /kaniko/executor --dockerfile=images/rust-concourse/Dockerfile --context=rust-image-def --use-new-run --single-snapshot --cache=false --no-push --tar-path=image/image.tar --digest-file=image/digest && digest=$(cat image/digest) && echo "$digest" | grep -Eq '^sha256:[0-9a-f]{64}$' && printf 'sha256-%s\n' "${digest#sha256:}" > image/tags && cat image/digest
+        - --dockerfile=images/rust-concourse/Dockerfile
+        - --context=rust-image-def
+        - --use-new-run
+        - --single-snapshot
+        - --cache=false
+        - --no-push
+        - --tar-path=image/image.tar
+        - --digest-file=image/digest
+  - task: prepare-image-tags
+    config:
+      platform: linux
+      image_resource:
+        type: registry-image
+        source:
+          repository: python
+          tag: 3.11-bookworm
+        version:
+          digest: sha256:18d373e126e39c29c6d38e71e2f19ca66636568318fc95c7849c462b7f9d3d64
+      inputs:
+      - name: rust-image-def
+      - name: image
+      outputs:
+      - name: image-tags
+      run:
+        path: python3
+        args:
+        - rust-image-def/images/trust/prepare-image-tags.py
+        - image/digest
+        - image-tags/tags
   - task: registry-snapshot
     config:
       platform: linux
@@ -63,7 +90,7 @@ jobs:
       skip_download: true
     params:
       image: image/image.tar
-      additional_tags: image/tags
+      additional_tags: image-tags/tags
   - task: registry-verify
     config:
       platform: linux
@@ -115,10 +142,37 @@ jobs:
       outputs:
       - name: image
       run:
-        path: /busybox/sh
+        path: /kaniko/executor
         args:
-        - -ec
-        - /kaniko/executor --dockerfile=images/nodejs-concourse/Dockerfile --context=nodejs-image-def --use-new-run --single-snapshot --cache=false --no-push --tar-path=image/image.tar --digest-file=image/digest && digest=$(cat image/digest) && echo "$digest" | grep -Eq '^sha256:[0-9a-f]{64}$' && printf 'sha256-%s\n' "${digest#sha256:}" > image/tags && cat image/digest
+        - --dockerfile=images/nodejs-concourse/Dockerfile
+        - --context=nodejs-image-def
+        - --use-new-run
+        - --single-snapshot
+        - --cache=false
+        - --no-push
+        - --tar-path=image/image.tar
+        - --digest-file=image/digest
+  - task: prepare-image-tags
+    config:
+      platform: linux
+      image_resource:
+        type: registry-image
+        source:
+          repository: python
+          tag: 3.11-bookworm
+        version:
+          digest: sha256:18d373e126e39c29c6d38e71e2f19ca66636568318fc95c7849c462b7f9d3d64
+      inputs:
+      - name: nodejs-image-def
+      - name: image
+      outputs:
+      - name: image-tags
+      run:
+        path: python3
+        args:
+        - nodejs-image-def/images/trust/prepare-image-tags.py
+        - image/digest
+        - image-tags/tags
   - task: registry-snapshot
     config:
       platform: linux
@@ -149,7 +203,7 @@ jobs:
       skip_download: true
     params:
       image: image/image.tar
-      additional_tags: image/tags
+      additional_tags: image-tags/tags
   - task: registry-verify
     config:
       platform: linux
@@ -201,10 +255,37 @@ jobs:
       outputs:
       - name: image
       run:
-        path: /busybox/sh
+        path: /kaniko/executor
         args:
-        - -ec
-        - /kaniko/executor --dockerfile=images/release/Dockerfile --context=release-pipeline-image-def --use-new-run --single-snapshot --cache=false --no-push --tar-path=image/image.tar --digest-file=image/digest && digest=$(cat image/digest) && echo "$digest" | grep -Eq '^sha256:[0-9a-f]{64}$' && printf 'sha256-%s\n' "${digest#sha256:}" > image/tags && cat image/digest
+        - --dockerfile=images/release/Dockerfile
+        - --context=release-pipeline-image-def
+        - --use-new-run
+        - --single-snapshot
+        - --cache=false
+        - --no-push
+        - --tar-path=image/image.tar
+        - --digest-file=image/digest
+  - task: prepare-image-tags
+    config:
+      platform: linux
+      image_resource:
+        type: registry-image
+        source:
+          repository: python
+          tag: 3.11-bookworm
+        version:
+          digest: sha256:18d373e126e39c29c6d38e71e2f19ca66636568318fc95c7849c462b7f9d3d64
+      inputs:
+      - name: release-pipeline-image-def
+      - name: image
+      outputs:
+      - name: image-tags
+      run:
+        path: python3
+        args:
+        - release-pipeline-image-def/images/trust/prepare-image-tags.py
+        - image/digest
+        - image-tags/tags
   - task: registry-snapshot
     config:
       platform: linux
@@ -235,7 +316,7 @@ jobs:
       skip_download: true
     params:
       image: image/image.tar
-      additional_tags: image/tags
+      additional_tags: image-tags/tags
   - task: registry-verify
     config:
       platform: linux
@@ -287,10 +368,37 @@ jobs:
       outputs:
       - name: image
       run:
-        path: /busybox/sh
+        path: /kaniko/executor
         args:
-        - -ec
-        - /kaniko/executor --dockerfile=images/wincross/Dockerfile --context=wincross-pipeline-image-def --use-new-run --single-snapshot --cache=false --no-push --tar-path=image/image.tar --digest-file=image/digest && digest=$(cat image/digest) && echo "$digest" | grep -Eq '^sha256:[0-9a-f]{64}$' && printf 'sha256-%s\n' "${digest#sha256:}" > image/tags && cat image/digest
+        - --dockerfile=images/wincross/Dockerfile
+        - --context=wincross-pipeline-image-def
+        - --use-new-run
+        - --single-snapshot
+        - --cache=false
+        - --no-push
+        - --tar-path=image/image.tar
+        - --digest-file=image/digest
+  - task: prepare-image-tags
+    config:
+      platform: linux
+      image_resource:
+        type: registry-image
+        source:
+          repository: python
+          tag: 3.11-bookworm
+        version:
+          digest: sha256:18d373e126e39c29c6d38e71e2f19ca66636568318fc95c7849c462b7f9d3d64
+      inputs:
+      - name: wincross-pipeline-image-def
+      - name: image
+      outputs:
+      - name: image-tags
+      run:
+        path: python3
+        args:
+        - wincross-pipeline-image-def/images/trust/prepare-image-tags.py
+        - image/digest
+        - image-tags/tags
   - task: registry-snapshot
     config:
       platform: linux
@@ -321,7 +429,7 @@ jobs:
       skip_download: true
     params:
       image: image/image.tar
-      additional_tags: image/tags
+      additional_tags: image-tags/tags
   - task: registry-verify
     config:
       platform: linux

@@ -87,6 +87,13 @@ performed by the local commands above.
 
 ## Review qualification boundary
 
+Kaniko runs directly and writes only the image archive and manifest digest.
+It can remove executables from its build filesystem, so no post-build shell
+commands run there. A separate pinned Python task validates `image/digest`
+and writes `image-tags/tags` before the registry snapshot and publication.
+Missing or invalid digests fail that task and prevent publication. Complete-image
+CI exercises the same two-container boundary and retains the digest and tag.
+
 Builds publish only `trust-candidate` and a build-derived `sha256-<digest>`
 tag. They never move `latest`. A pre-publication task records the previous
 candidate digest (or confirmed absence) in its output and retained build log.
