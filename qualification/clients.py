@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """Credential-free checks of installed clients in an exact candidate image."""
 import argparse
+import io
 import json
 from pathlib import Path
 import re
 import subprocess
 import sys
+import tarfile
 import tempfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "images" / "trust"))
@@ -97,6 +99,10 @@ def commands(profile, home):
             audit + ["--db", str(home / "healthy-advisories"), "--url", "https://github.com/RustSec/advisory-db.git"],
         )
     if profile == "release":
+        chart = ["cr", "index", "--owner", "helm", "--git-repo", "chart-releaser",
+                 "--release-name-template", "v1.6.0", "--package-path", str(home / "chart-releaser/packages"),
+                 "--index-path", str(home / "chart-releaser/index.yaml")]
+        clients["cr"] = (lambda host: chart + ["--git-base-url", f"https://{host}/"], chart)
         clients.update({
             "helm": (lambda host: ["helm", "repo", "add", "negative", f"https://{host}"],
                      ["helm", "repo", "add", "healthy", "https://charts.helm.sh/stable"]),
@@ -126,8 +132,32 @@ def python_request(backend, url):
     return response.status_code
 
 
+def prepare_chart_probe(home, env):
+    directory = home / "chart-releaser"
+    directory.mkdir()
+    # Clone a public fixture; never create or push a release/PR/commit.
+    for command in (
+        ["git", "clone", "--depth=1", "--branch", "v1.6.0", "https://github.com/helm/chart-releaser.git", "."],
+        ["git", "update-ref", "refs/remotes/origin/gh-pages", "HEAD"],
+    ):
+        code, _ = execute(command, env, directory)
+        if code != 0:
+            return False
+    packages = directory / "packages"
+    packages.mkdir()
+    chart = b"apiVersion: v2\nname: candidate-probe\nversion: 0.1.0\n"
+    with tarfile.open(packages / "candidate-probe-0.1.0.tgz", "w:gz") as archive:
+        member = tarfile.TarInfo("candidate-probe/Chart.yaml")
+        member.size = len(chart)
+        archive.addfile(member, io.BytesIO(chart))
+    return True
+
+
 def qualify(profile, home):
     env = environment(home)
+    if profile == "release" and not prepare_chart_probe(home, env):
+        print(json.dumps({"setup": "chart-index-fixture", "passed": False}), flush=True)
+        return False
     if profile == "rust":
         (home / "Cargo.lock").write_text('version = 4\n[[package]]\nname = "candidate-probe"\nversion = "0.1.0"\n')
     if profile != "wincross":
@@ -143,18 +173,20 @@ def qualify(profile, home):
             "ghtoken": ["ghtoken", "--version"],
             "gcloud": ["/root/google-cloud-sdk/bin/gcloud", "--version"],
             "buf": ["buf", "--version"], "cargo-audit": ["cargo", "audit", "--version"],
+            "cr": ["cr", "version"],
             "helm": ["helm", "version", "--short"],
             "kubectl": ["kubectl", "version", "--client=true", "--short"],
             "certifi": [sys.executable, "-m", "pip", "show", "certifi"],
             "pip": [sys.executable, "-m", "pip", "--version"],
         }[client]
-        version_code, version = execute(version_command, env, home)
+        working = home / "chart-releaser" if client == "cr" else home
+        version_code, version = execute(version_command, env, working)
         results = []
         for host in HOSTS:
-            code, output = execute(negative_command(host), env, home, stderr_only=True)
+            code, output = execute(negative_command(host), env, working, stderr_only=True)
             results.append({"host": host, "exit": code, "diagnostic": output[-600:],
                             "distrusted": accepted(code, output, negative=True)})
-        code, output = execute(healthy_command, env, home)
+        code, output = execute(healthy_command, env, working)
         healthy = accepted(code, output, auth_control=client)
         good = version_code == 0 and all(row["distrusted"] for row in results) and healthy
         passed = passed and good

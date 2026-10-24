@@ -7,6 +7,7 @@ import runpy
 import subprocess
 import sys
 import tempfile
+import tarfile
 import types
 import unittest
 from unittest.mock import patch, MagicMock
@@ -70,7 +71,7 @@ class CandidateClientsTests(unittest.TestCase):
     def test_commands_profiles_and_fixed_hosts(self):
         for profile, expected in [("wincross", {"git"}), ("node", {"git", "gh", "gcloud", "ghtoken", "buf"}),
                                   ("rust", {"git", "gh", "gcloud", "ghtoken", "buf", "cargo-audit"}),
-                                  ("release", {"git", "gh", "gcloud", "ghtoken", "helm", "kubectl", "certifi", "pip"})]:
+                                  ("release", {"git", "gh", "gcloud", "ghtoken", "cr", "helm", "kubectl", "certifi", "pip"})]:
             commands = CLIENTS.commands(profile, Path("/tmp/probe"))
             self.assertEqual(set(commands), expected)
             for name, (negative, healthy) in commands.items():
@@ -78,6 +79,8 @@ class CandidateClientsTests(unittest.TestCase):
                 self.assertTrue(any(CLIENTS.HOSTS[0] in item for item in args))
                 self.assertTrue(healthy)
                 self.assertNotIn("--insecure", args)
+                self.assertNotIn("--push", args)
+                self.assertNotIn("--pr", args)
                 if name in ("certifi", "pip"):
                     self.assertEqual(args[-2], name)
 
@@ -142,6 +145,26 @@ class CandidateClientsTests(unittest.TestCase):
              patch.object(CLIENTS, "execute", return_value=(0, "")):
             self.assertTrue(CLIENTS.qualify("rust", Path(directory)))
             self.assertIn('name = "candidate-probe"', (Path(directory) / "Cargo.lock").read_text())
+
+    def test_chart_fixture_success_and_failures(self):
+        for codes in [(0, 0), (1,), (0, 1)]:
+            with tempfile.TemporaryDirectory() as directory, \
+                 patch.object(CLIENTS, "execute", side_effect=[(c, "") for c in codes]):
+                home = Path(directory)
+                self.assertEqual(CLIENTS.prepare_chart_probe(home, {}), codes == (0, 0))
+                if codes == (0, 0):
+                    with tarfile.open(home / "chart-releaser/packages/candidate-probe-0.1.0.tgz") as archive:
+                        self.assertEqual(archive.getnames(), ["candidate-probe/Chart.yaml"])
+                        self.assertIn(b"apiVersion: v2", archive.extractfile(archive.getmembers()[0]).read())
+        with patch.object(CLIENTS, "prepare_chart_probe", return_value=False), \
+             contextlib.redirect_stdout(io.StringIO()) as output:
+            self.assertFalse(CLIENTS.qualify("release", Path("/tmp")))
+        self.assertEqual(json.loads(output.getvalue())["setup"], "chart-index-fixture")
+        with patch.object(CLIENTS, "prepare_chart_probe", return_value=True), \
+             patch.object(CLIENTS, "execute", return_value=(0, "")), \
+             patch.object(CLIENTS, "commands", return_value={"cr": (lambda host: ["cr"], ["cr"])}), \
+             contextlib.redirect_stdout(io.StringIO()):
+            self.assertFalse(CLIENTS.qualify("release", Path("/tmp")))
 
     def test_smoke_profiles(self):
         with tempfile.TemporaryDirectory() as directory:

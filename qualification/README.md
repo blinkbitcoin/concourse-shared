@@ -20,7 +20,7 @@ candidate requires an explicit digest change and new receipts.
 `clients.py` uses a fresh temporary HOME and an allowlisted environment. It
 records installed versions, rejection results for all twelve live endpoints,
 and healthy TLS controls for Git, GitHub CLI, gcloud, gh-token, Buf, Cargo Audit
-and release Helm/kubectl/Python clients where installed. Certificate expiry,
+and release chart-releaser/Helm/kubectl/Python clients where installed. Certificate expiry,
 hostname mismatch, timeout, DNS failure and auth
 failure do not count as negative-test success. The artifact's existing gate
 also verifies all fourteen pinned published certificate-chain fixtures offline.
@@ -42,6 +42,13 @@ No token is generated, revoked or accepted by a real account. Buf reads a public
 protobuf source archive, and Cargo Audit fetches the public advisory database
 against an empty synthetic lockfile with yanked-crate lookup disabled.
 
+Chart-releaser runs its actual `index` command against a local public-repository
+fixture and synthetic chart package. It tests the GitHub release-read endpoint
+with `--git-base-url`; the healthy control reads the existing upstream v1.6.0
+release. Neither `--push` nor `--pr` is set, so it creates no remote release,
+commit or pull request. The local fixture ref is discarded with the temporary
+directory. This does not qualify release uploads or authenticated private APIs.
+
 Basic tooling smoke checks execute Node, check release Python dependencies,
 compile native Rust, and cross-compile a minimal Windows program. These are
 tooling checks, not substitutes for actual consuming-repository test suites.
@@ -61,7 +68,7 @@ alias or retries a production operation.
 
 This workflow does not certify every embedded client, Go build version, custom
 root override, authenticated registry operation or private CA/mTLS path. In
-particular, Docker/Compose, chart-releaser and other independently networking
+particular, Docker/Compose and other independently networking
 Cargo subcommands require an applicability inventory and actual
 consumer checks. A patched OS bundle does not add Go's compromised-key blocklist
 to old binaries. Replace affected binaries where those remaining checks require
