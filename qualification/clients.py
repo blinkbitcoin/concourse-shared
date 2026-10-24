@@ -46,7 +46,9 @@ def accepted(code, output, *, negative=False, gh_control=False):
         return False
     if negative:
         message = output.lower()
-        unrelated = ("expired", "not yet valid", "hostname", "certificate subject name")
+        unrelated = ("certificate has expired", "certificate is expired", "not yet valid",
+                     "hostname mismatch", "doesn't match", "does not match",
+                     "no alternative certificate subject name")
         return (code != 0 and not any(error in message for error in unrelated)
                 and any(error in message for error in ISSUER_ERRORS))
     # gh requires a token even for its public API command. A deliberately
@@ -109,7 +111,7 @@ def qualify(profile, home):
         results = []
         for host in HOSTS:
             code, output = execute(negative_command(host), env, home)
-            results.append({"host": host, "exit": code, "diagnostic": output[:400],
+            results.append({"host": host, "exit": code, "diagnostic": output[-600:],
                             "distrusted": accepted(code, output, negative=True)})
         code, output = execute(healthy_command, env, home)
         healthy = accepted(code, output, gh_control=client == "gh")

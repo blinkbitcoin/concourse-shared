@@ -42,8 +42,13 @@ class CandidateClientsTests(unittest.TestCase):
         for code, error in [(None, "timeout"), (0, CLIENTS.ISSUER_ERRORS[0]),
                             (1, "DNS error"), (1, "HTTP 401"), (1, "timed out")]:
             self.assertFalse(CLIENTS.accepted(code, error, negative=True))
-        for error in ["expired", "not yet valid", "hostname", "certificate subject name"]:
+        for error in ["certificate has expired", "certificate is expired", "not yet valid",
+                      "hostname mismatch", "doesn't match", "does not match",
+                      "no alternative certificate subject name"]:
             self.assertFalse(CLIENTS.accepted(1, CLIENTS.ISSUER_ERRORS[0] + error, negative=True))
+        self.assertTrue(CLIENTS.accepted(1, "assert_hostname=self.assert_hostname\n"
+                                        "CERTIFICATE_VERIFY_FAILED: unable to get local issuer certificate",
+                                        negative=True))
 
     def test_healthy_classifier(self):
         self.assertTrue(CLIENTS.accepted(0, "ok"))

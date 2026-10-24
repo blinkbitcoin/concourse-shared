@@ -34,6 +34,13 @@ Basic tooling smoke checks execute Node, check release Python dependencies,
 compile native Rust, and cross-compile a minimal Windows program. These are
 tooling checks, not substitutes for actual consuming-repository test suites.
 
+`node-consumer-canary.yml` additionally checks out the public `blink-client`
+consumer at `393276b690b8f809f068cfb3e3f2afc54ff91e76`, without persisted GitHub
+credentials, and runs its dependency installation, Jest tests and tsup build in
+the exact Node candidate. This exercises the consumer commands without its
+release/publish steps. It records the checked-out commit and resolved image;
+the live Concourse pipeline still requires its own adoption and readback.
+
 CI retains resolved digests, artifact trust output and installed-client JSON
 receipts even on failure. A failed check holds adoption; it never promotes an
 alias or retries a production operation.
