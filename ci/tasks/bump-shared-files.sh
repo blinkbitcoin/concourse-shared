@@ -66,7 +66,10 @@ rename -f 's/^tofu-//' *
 popd
 
 echo "    --> Copying dependabot config"
-mv ci/vendor/config/*-dependabot.yml .github/dependabot.yml || true
+# cp, not mv: ci/vendor must stay exactly what `vendir sync` produces from
+# ci/vendir.yml, so the committed snapshot is reproducible (like
+# .github/workflows/vendor, which is also copied out, not moved).
+cp ci/vendor/config/*-dependabot.yml .github/dependabot.yml || true
 
 if [[ ! -f ./typos.toml ]]; then
   cat <<EOF > typos.toml
