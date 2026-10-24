@@ -32,7 +32,7 @@ class PipelineTests(unittest.TestCase):
         builds = [j for j in pipeline["jobs"] if j["name"].startswith("build-")]
         self.assertEqual(len(builds), 4)
         for job in builds:
-            source, build, snapshot, publish, verify = job["plan"]
+            source, build, prepare, snapshot, publish, verify = job["plan"]
             name = source["get"]
             paths = resources[name]["source"]["paths"]
             self.assertIn("images/trust/*", paths)
@@ -41,17 +41,23 @@ class PipelineTests(unittest.TestCase):
             self.assertNotIn("digest", config["image_resource"]["source"])
             self.assertEqual(config["image_resource"]["source"]["tag"], "v1.24.0-debug")
             self.assertEqual(config["image_resource"]["version"]["digest"], "sha256:2562c4fe551399514277ffff7dcca9a3b1628c4ea38cb017d7286dc6ea52f4cd")
-            self.assertEqual(config["run"]["path"], "/busybox/sh")
-            args = config["run"]["args"][-1].split()
+            self.assertEqual(config["run"]["path"], "/kaniko/executor")
+            args = config["run"]["args"]
             self.assertIn("--context=" + name, args)
             self.assertIn("--dockerfile=" + dockerfile, args)
             self.assertIn("--cache=false", args)
             self.assertIn("--no-push", args)
             self.assertIn("--digest-file=image/digest", args)
             self.assertEqual(publish["params"]["image"], "image/image.tar")
-            self.assertEqual(publish["params"]["additional_tags"], "image/tags")
+            self.assertEqual(publish["params"]["additional_tags"], "image-tags/tags")
             self.assertEqual(resources[publish["put"]]["source"]["tag"], "trust-candidate")
-            self.assertIn("sha256-%s", config["run"]["args"][-1])
+            metadata = prepare["config"]
+            self.assertEqual(metadata["image_resource"], snapshot["config"]["image_resource"])
+            self.assertEqual(metadata["inputs"], [{"name": name}, {"name": "image"}])
+            self.assertEqual(metadata["outputs"], [{"name": "image-tags"}])
+            self.assertNotIn("params", metadata)
+            self.assertEqual(metadata["run"], {"path": "python3", "args": [
+                name + "/images/trust/prepare-image-tags.py", "image/digest", "image-tags/tags"]})
             self.assertEqual(snapshot["config"]["run"]["args"][1], "snapshot")
             self.assertEqual(verify["config"]["run"]["args"][1], "verify")
             self.assertEqual(verify["config"]["run"]["args"][-3:], ["image/digest", publish["put"] + "/digest", "previous/digest.json"])

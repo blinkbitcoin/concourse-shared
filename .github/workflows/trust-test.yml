@@ -9,6 +9,7 @@ on:
       - 'tests/test_pipeline.py'
       - 'tests/test_trust.py'
       - 'tests/test_registry_proof.py'
+      - 'tests/test_prepare_image_tags.py'
 permissions:
   contents: read
 jobs:
@@ -48,12 +49,25 @@ jobs:
       - name: Qualify each complete candidate with the pinned builder
         run: |
           mkdir -p "$RUNNER_TEMP/kaniko-image"
-          docker run --rm --platform linux/amd64 --entrypoint /busybox/sh \
+          docker run --rm --platform linux/amd64 --entrypoint /kaniko/executor \
             -v "$PWD:/workspace/source:ro" \
             -v "$RUNNER_TEMP/kaniko-image:/workspace/image" -w /workspace \
             gcr.io/kaniko-project/executor@sha256:2562c4fe551399514277ffff7dcca9a3b1628c4ea38cb017d7286dc6ea52f4cd \
-            -ec 'test -x /kaniko/executor; /kaniko/executor --dockerfile=images/${{ matrix.image }}/Dockerfile --context=source --use-new-run --single-snapshot --cache=false --no-push --tar-path=image/image.tar --digest-file=image/digest'
+            --dockerfile=images/${{ matrix.image }}/Dockerfile --context=source \
+            --use-new-run --single-snapshot --cache=false --no-push \
+            --tar-path=image/image.tar --digest-file=image/digest
+      - name: Prepare content tag in the separate pinned runtime
+        run: |
+          mkdir -p "$RUNNER_TEMP/image-tags"
+          docker run --rm --platform linux/amd64 --entrypoint python3 \
+            -v "$PWD:/workspace/source:ro" \
+            -v "$RUNNER_TEMP/kaniko-image:/workspace/image:ro" \
+            -v "$RUNNER_TEMP/image-tags:/workspace/image-tags" -w /workspace \
+            python@sha256:18d373e126e39c29c6d38e71e2f19ca66636568318fc95c7849c462b7f9d3d64 \
+            source/images/trust/prepare-image-tags.py image/digest image-tags/tags
       - uses: actions/upload-artifact@v4
         with:
           name: kaniko-${{ matrix.image }}-digest
-          path: ${{ runner.temp }}/kaniko-image/digest
+          path: |
+            ${{ runner.temp }}/kaniko-image/digest
+            ${{ runner.temp }}/image-tags/tags
