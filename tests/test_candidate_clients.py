@@ -32,6 +32,7 @@ class CandidateClientsTests(unittest.TestCase):
             self.assertEqual(CLIENTS.execute(["tool"], {"HOME": "sandbox"}, "/tmp"), (1, "outerr"))
             self.assertEqual(run.call_args.kwargs["timeout"], 60)
             self.assertEqual(run.call_args.kwargs["env"], {"HOME": "sandbox"})
+            self.assertEqual(CLIENTS.execute(["tool"], {}, "/tmp", stderr_only=True), (1, "err"))
         for error in [FileNotFoundError(), subprocess.TimeoutExpired("tool", 60)]:
             with self.subTest(error=type(error)), patch.object(CLIENTS.subprocess, "run", side_effect=error):
                 self.assertEqual(CLIENTS.execute(["tool"], {}, "/tmp"), (None, type(error).__name__))
@@ -49,25 +50,32 @@ class CandidateClientsTests(unittest.TestCase):
         self.assertTrue(CLIENTS.accepted(1, "assert_hostname=self.assert_hostname\n"
                                         "CERTIFICATE_VERIFY_FAILED: unable to get local issuer certificate",
                                         negative=True))
+        for response in ["HTTP 401", "HTTPError 403", "HTTP/1.1 500", "HTTP: 404"]:
+            self.assertFalse(CLIENTS.accepted(1, response + ": " + CLIENTS.ISSUER_ERRORS[0], negative=True))
 
     def test_healthy_classifier(self):
         self.assertTrue(CLIENTS.accepted(0, "ok"))
         self.assertFalse(CLIENTS.accepted(1, "error"))
         for code, text in [(None, "HTTP 401 Bad credentials"), (0, "HTTP 401 Bad credentials"),
                            (1, "HTTP 403 Bad credentials"), (1, "HTTP 401 unrelated")]:
-            self.assertFalse(CLIENTS.accepted(code, text, gh_control=True))
-        self.assertTrue(CLIENTS.accepted(1, "HTTP 401 Bad credentials", gh_control=True))
+            self.assertFalse(CLIENTS.accepted(code, text, auth_control="gh"))
+        self.assertTrue(CLIENTS.accepted(1, "HTTP 401 Bad credentials", auth_control="gh"))
+        for client, good in [("gcloud", "HTTPError 401: Invalid Credentials"),
+                             ("ghtoken", "GET https://api.github.com/app/installations: 401 A JSON web token could not be decoded")]:
+            self.assertTrue(CLIENTS.accepted(1, good, auth_control=client))
+            for code, message in [(0, good), (1, "401"), (1, "not authenticated")]:
+                self.assertFalse(CLIENTS.accepted(code, message, auth_control=client))
 
     def test_commands_profiles_and_fixed_hosts(self):
-        for profile, expected in [("wincross", {"git"}), ("node", {"git", "gh"}),
-                                  ("rust", {"git", "gh"}),
-                                  ("release", {"git", "gh", "helm", "kubectl", "certifi", "pip"})]:
-            commands = CLIENTS.commands(profile)
+        for profile, expected in [("wincross", {"git"}), ("node", {"git", "gh", "gcloud", "ghtoken", "buf"}),
+                                  ("rust", {"git", "gh", "gcloud", "ghtoken", "buf", "cargo-audit"}),
+                                  ("release", {"git", "gh", "gcloud", "ghtoken", "helm", "kubectl", "certifi", "pip"})]:
+            commands = CLIENTS.commands(profile, Path("/tmp/probe"))
             self.assertEqual(set(commands), expected)
             for name, (negative, healthy) in commands.items():
                 args = negative(CLIENTS.HOSTS[0])
                 self.assertTrue(any(CLIENTS.HOSTS[0] in item for item in args))
-                self.assertTrue(any("https://" in item for item in healthy))
+                self.assertTrue(healthy)
                 self.assertNotIn("--insecure", args)
                 if name in ("certifi", "pip"):
                     self.assertEqual(args[-2], name)
@@ -99,10 +107,13 @@ class CandidateClientsTests(unittest.TestCase):
 
     def test_qualify_success_and_every_failure(self):
         for failed in [None, "version", "negative", "healthy"]:
-            def execute(args, env, cwd):
+            def execute(args, env, cwd, **kwargs):
+                if args[0] == "openssl":
+                    return 0, ""
                 if args[0] == "git":
                     return (1, "missing version") if failed == "version" else (0, "git version test")
                 if args[0] == "bad":
+                    self.assertTrue(kwargs["stderr_only"])
                     return (0, "accepted") if failed == "negative" else (1, CLIENTS.ISSUER_ERRORS[0])
                 return (1, "failure") if failed == "healthy" else (0, "healthy")
             commands = {"git": (lambda host: ["bad", host], ["healthy"]),
@@ -115,6 +126,21 @@ class CandidateClientsTests(unittest.TestCase):
             self.assertEqual(len(rows), 2)
             self.assertEqual(len(rows[0]["negative"]), 12)
             self.assertFalse(rows[0]["healthy_authenticated"])
+
+    def test_synthetic_key_setup_failure_and_wincross_skip(self):
+        with patch.object(CLIENTS, "execute", return_value=(1, "openssl failed")), \
+             contextlib.redirect_stdout(io.StringIO()) as output:
+            self.assertFalse(CLIENTS.qualify("node", Path("/tmp")))
+        self.assertEqual(json.loads(output.getvalue())["setup"], "synthetic-app-key")
+        with patch.object(CLIENTS, "commands", return_value={}), \
+             patch.object(CLIENTS, "execute") as execute:
+            self.assertTrue(CLIENTS.qualify("wincross", Path("/tmp")))
+            execute.assert_not_called()
+        with tempfile.TemporaryDirectory() as directory, \
+             patch.object(CLIENTS, "commands", return_value={}), \
+             patch.object(CLIENTS, "execute", return_value=(0, "")):
+            self.assertTrue(CLIENTS.qualify("rust", Path(directory)))
+            self.assertIn('name = "candidate-probe"', (Path(directory) / "Cargo.lock").read_text())
 
     def test_smoke_profiles(self):
         with tempfile.TemporaryDirectory() as directory:

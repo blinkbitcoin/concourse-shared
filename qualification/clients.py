@@ -3,6 +3,7 @@
 import argparse
 import json
 from pathlib import Path
+import re
 import subprocess
 import sys
 import tempfile
@@ -18,6 +19,8 @@ ISSUER_ERRORS = (
     "unable to get local issuer certificate",
     "unable to verify the first certificate",
     "self-signed certificate in certificate chain",
+    "invalid peer certificate: unknownissuer",
+    "invalid peer certificate: certdistrusted",
 )
 DUMMY_TOKEN = "public-tls-probe-not-a-secret"
 
@@ -29,19 +32,24 @@ def environment(home):
         "HOME": str(home), "LC_ALL": "C", "GH_TOKEN": DUMMY_TOKEN,
         "KUBECONFIG": "/dev/null", "GIT_TERMINAL_PROMPT": "0",
         "CARGO_HOME": "/usr/local/cargo", "RUSTUP_HOME": "/usr/local/rustup",
+        "CLOUDSDK_CONFIG": str(home / "gcloud"),
+        "CLOUDSDK_AUTH_ACCESS_TOKEN": DUMMY_TOKEN,
+        "CLOUDSDK_CORE_CUSTOM_CA_CERTS_FILE": "/etc/ssl/certs/ca-certificates.crt",
+        "CLOUDSDK_CORE_DISABLE_PROMPTS": "1",
+        "CLOUDSDK_CORE_DISABLE_USAGE_REPORTING": "true",
     }
 
 
-def execute(args, env, cwd):
+def execute(args, env, cwd, *, stderr_only=False):
     try:
         result = subprocess.run(args, env=env, cwd=cwd, capture_output=True,
                                 text=True, timeout=60)
     except (OSError, subprocess.TimeoutExpired) as error:
         return None, type(error).__name__
-    return result.returncode, result.stdout + result.stderr
+    return result.returncode, result.stderr if stderr_only else result.stdout + result.stderr
 
 
-def accepted(code, output, *, negative=False, gh_control=False):
+def accepted(code, output, *, negative=False, auth_control=None):
     if code is None:
         return False
     if negative:
@@ -49,16 +57,21 @@ def accepted(code, output, *, negative=False, gh_control=False):
         unrelated = ("certificate has expired", "certificate is expired", "not yet valid",
                      "hostname mismatch", "doesn't match", "does not match",
                      "no alternative certificate subject name")
-        return (code != 0 and not any(error in message for error in unrelated)
+        http_response = re.search(r"\bhttp(?:error)?(?:/\d(?:\.\d)?)?[ :]+[1-5]\d\d\b", message)
+        return (code != 0 and not http_response and not any(error in message for error in unrelated)
                 and any(error in message for error in ISSUER_ERRORS))
     # gh requires a token even for its public API command. A deliberately
     # invalid token's HTTP 401 proves TLS only, never authenticated API access.
-    if gh_control:
+    if auth_control == "gh":
         return code != 0 and "HTTP 401" in output and "Bad credentials" in output
+    if auth_control == "gcloud":
+        return code != 0 and "HTTPError 401" in output and "Invalid Credentials" in output
+    if auth_control == "ghtoken":
+        return code != 0 and ": 401 " in output and "JSON web token could not be decoded" in output
     return code == 0
 
 
-def commands(profile):
+def commands(profile, home):
     clients = {
         "git": (lambda host: ["git", "ls-remote", f"https://{host}/probe.git"],
                 ["git", "ls-remote", "https://github.com/blinkbitcoin/concourse-shared.git", "HEAD"]),
@@ -66,6 +79,22 @@ def commands(profile):
     if profile != "wincross":
         clients["gh"] = (lambda host: ["gh", "api", "--hostname", host, "/"],
                          ["gh", "api", "https://api.github.com/user"])
+        cloud = ["/root/google-cloud-sdk/bin/gcloud", "storage", "buckets", "describe",
+                 "gs://candidate-tls-probe", "--format=json", "--quiet"]
+        clients["gcloud"] = (lambda host: ["env", "CLOUDSDK_API_ENDPOINT_OVERRIDES_STORAGE="
+                                          + f"https://{host}/"] + cloud, cloud)
+        token = ["ghtoken", "installations", "--key", str(home / "probe-key.pem"), "--app-id", "1"]
+        clients["ghtoken"] = (lambda host: token + ["--hostname", host], token)
+    if profile in ("node", "rust"):
+        clients["buf"] = (lambda host: ["buf", "ls-files", f"https://{host}/probe.tar.gz"],
+                          ["buf", "ls-files", "https://github.com/protocolbuffers/protobuf/archive/refs/tags/"
+                           "v3.20.3.tar.gz#strip_components=1,subdir=src/google/protobuf"])
+    if profile == "rust":
+        audit = ["cargo", "audit", "--file", str(home / "Cargo.lock"), "--no-yanked"]
+        clients["cargo-audit"] = (
+            lambda host: audit + ["--db", str(home / ("advisories-" + host)), "--url", f"https://{host}/probe.git"],
+            audit + ["--db", str(home / "healthy-advisories"), "--url", "https://github.com/RustSec/advisory-db.git"],
+        )
     if profile == "release":
         clients.update({
             "helm": (lambda host: ["helm", "repo", "add", "negative", f"https://{host}"],
@@ -98,10 +127,21 @@ def python_request(backend, url):
 
 def qualify(profile, home):
     env = environment(home)
+    if profile == "rust":
+        (home / "Cargo.lock").write_text('version = 4\n[[package]]\nname = "candidate-probe"\nversion = "0.1.0"\n')
+    if profile != "wincross":
+        # This disposable key belongs to no GitHub App. Never use operator keys.
+        code, _ = execute(["openssl", "genrsa", "-out", str(home / "probe-key.pem"), "2048"], env, home)
+        if code != 0:
+            print(json.dumps({"setup": "synthetic-app-key", "passed": False}), flush=True)
+            return False
     passed = True
-    for client, (negative_command, healthy_command) in commands(profile).items():
+    for client, (negative_command, healthy_command) in commands(profile, home).items():
         version_command = {
             "git": ["git", "--version"], "gh": ["gh", "--version"],
+            "ghtoken": ["ghtoken", "--version"],
+            "gcloud": ["/root/google-cloud-sdk/bin/gcloud", "--version"],
+            "buf": ["buf", "--version"], "cargo-audit": ["cargo", "audit", "--version"],
             "helm": ["helm", "version", "--short"],
             "kubectl": ["kubectl", "version", "--client=true", "--short"],
             "certifi": [sys.executable, "-m", "pip", "show", "certifi"],
@@ -110,11 +150,11 @@ def qualify(profile, home):
         version_code, version = execute(version_command, env, home)
         results = []
         for host in HOSTS:
-            code, output = execute(negative_command(host), env, home)
+            code, output = execute(negative_command(host), env, home, stderr_only=True)
             results.append({"host": host, "exit": code, "diagnostic": output[-600:],
                             "distrusted": accepted(code, output, negative=True)})
         code, output = execute(healthy_command, env, home)
-        healthy = accepted(code, output, gh_control=client == "gh")
+        healthy = accepted(code, output, auth_control=client)
         good = version_code == 0 and all(row["distrusted"] for row in results) and healthy
         passed = passed and good
         print(json.dumps({"client": client, "version": version[:300],

@@ -19,8 +19,9 @@ candidate requires an explicit digest change and new receipts.
 
 `clients.py` uses a fresh temporary HOME and an allowlisted environment. It
 records installed versions, rejection results for all twelve live endpoints,
-and healthy TLS controls for Git, GitHub CLI and release Helm/kubectl/Python
-clients. Certificate expiry, hostname mismatch, timeout, DNS failure and auth
+and healthy TLS controls for Git, GitHub CLI, gcloud, gh-token, Buf, Cargo Audit
+and release Helm/kubectl/Python clients where installed. Certificate expiry,
+hostname mismatch, timeout, DNS failure and auth
 failure do not count as negative-test success. The artifact's existing gate
 also verifies all fourteen pinned published certificate-chain fixtures offline.
 
@@ -29,6 +30,15 @@ requests and healthy control use a literal non-secret dummy token. The healthy
 GitHub API's explicit HTTP401 Bad credentials response proves TLS connectivity
 only. It does not qualify authenticated GitHub access. No real credentials are
 sent to public test endpoints.
+
+gcloud also uses a literal dummy access token and the image's configured system
+CA path. Its storage endpoint override exercises the installed SDK against each
+negative fixture; the normal API's explicit HTTP401 response is a TLS-only
+control. gh-token lists installations using a temporary synthetic RSA key that
+belongs to no GitHub App. Its expected invalid-JWT response is likewise TLS-only.
+No token is generated, revoked or accepted by a real account. Buf reads a public
+protobuf source archive, and Cargo Audit fetches the public advisory database
+against an empty synthetic lockfile with yanked-crate lookup disabled.
 
 Basic tooling smoke checks execute Node, check release Python dependencies,
 compile native Rust, and cross-compile a minimal Windows program. These are
@@ -49,8 +59,8 @@ alias or retries a production operation.
 
 This workflow does not certify every embedded client, Go build version, custom
 root override, authenticated registry operation or private CA/mTLS path. In
-particular, buf, Docker/Compose, chart-releaser, gh-token, gcloud and independently
-networking Cargo subcommands require an applicability inventory and actual
+particular, Docker/Compose, chart-releaser and other independently networking
+Cargo subcommands require an applicability inventory and actual
 consumer checks. A patched OS bundle does not add Go's compromised-key blocklist
 to old binaries. Replace affected binaries where those remaining checks require
 it; do not infer their qualification from Git or curl.
@@ -60,6 +70,11 @@ Adopt verified digests through each source owner's rollout and record the image
 actually resolved in the new build. Keep #1699 open until its runtime and
 consumer criteria are satisfied. Do not use container intercept on running
 Concourse builds to collect this evidence.
+
+Command references: [gcloud endpoint overrides](https://docs.cloud.google.com/sdk/gcloud/reference/topic/endpoint-override),
+[gcloud token overrides](https://docs.cloud.google.com/sdk/docs/authenticate),
+[gh-token](https://github.com/Link-/gh-token), [Buf HTTPS inputs](https://buf.build/docs/reference/inputs/),
+[Cargo Audit options](https://github.com/rustsec/rustsec/blob/main/cargo-audit/src/commands/audit.rs).
 
 ## Local tests
 
