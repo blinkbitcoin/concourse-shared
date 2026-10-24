@@ -38,13 +38,21 @@ subprocess.run([
 ], check=True)
 ```
 
-The helper checks command, start time and working directory, then pins the root
-and its descendants with Linux pidfds. It freezes the root first, rescans until
-the tree is stable and stopped, and refuses self/init targets, PID reuse or more
-than 4096 processes. It sends TERM and CONT only through the pinned descriptors,
-waits 10 seconds, sends KILL only to surviving pinned processes, and verifies exit.
-On preflight failure it resumes processes it stopped and fails without retry.
-It requires Linux and Python with pidfd support. Do not weaken a failed guard.
+The helper first verifies that the retained task container has no unrelated live
+workload, then pins and freezes the root with a Linux pidfd before its final
+command and working-directory check. It protects only the helper/supervisor
+ancestry and freezes every other live process in the dedicated container, so a
+descendant cannot leave scope merely by reparenting. It refuses self/init targets,
+PID reuse or more than 4096 processes. It sends TERM and CONT only through pinned
+descriptors, waits 10 seconds, and sends KILL to survivors. It trusts only PID 1
+as the shared supervisor boundary and rejects a target sharing any other ancestor
+with the helper. It then reconciles the complete container process inventory until
+two scans are clean. Any late process makes cleanup fail closed; the helper does
+not signal it because it cannot distinguish a workload fork from a concurrent
+administrative exec. On preflight failure it attempts to resume every process it
+stopped; after TERM delivery starts or becomes uncertain it never resumes a
+partially terminated workload. It requires Linux and Python with pidfd support.
+Do not weaken a failed guard.
 
 Termination is irreversible; recovery is a new build from reviewed source, never
 resumption of a partially terminated compiler tree. Retain the helper commit,
@@ -52,11 +60,13 @@ identity evidence and receipt in protected operator storage.
 
 ## Verification and retry
 
-Independently inspect process names/ancestry in the **same terminal container**;
-require no live Kaniko, cargo, rustc or compiler descendants. Zombies are exited
-processes, not active compilation. Recheck that no publication occurred and that
-no newer build is active. Only then unpause and trigger at most one clean retry;
-first check whether normal scheduling already created it.
+Independently enumerate the complete `/proc` process inventory in the **same
+terminal container** and require that no live process remains outside the known
+container supervisor ancestry. Do not rely on command names or descendants of the
+original Kaniko PID: a late fork can change both its name and parent. Zombies are
+exited processes, not active compilation. Recheck that no publication occurred
+and that no newer build is active. Only then unpause and trigger at most one clean
+retry; first check whether normal scheduling already created it.
 
 Monitor the retry using `fly watch`, build status and resource APIs only. Do not
 intercept a running build: Concourse 8.3.0 stores a container-wide exit status,
