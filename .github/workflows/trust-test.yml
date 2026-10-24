@@ -10,6 +10,7 @@ on:
       - 'tests/test_trust.py'
       - 'tests/test_registry_proof.py'
       - 'tests/test_prepare_image_tags.py'
+      - 'tests/test_orphan_cleanup.py'
 permissions:
   contents: read
 jobs:
