@@ -83,9 +83,19 @@ def accepted(code, output, *, negative=False, auth_control=None):
             "Error: failed listing installations: unexpected status code: 404",
         )
     if auth_control == "cr" and code != 0:
-        return bool(re.search(
-            r"^Error: GET https://api\.github\.com/repos/helm/chart-releaser/releases/tags/v1\.6\.0: "
-            r"403 API rate limit (?:of [0-9]+ )?(?:still )?exceeded\b", output, re.M))
+        # cr also prints progress and Cobra usage. Require one complete quota
+        # error, and reject any additional failure instead of matching one line
+        # inside a mixed diagnostic (including errors appended on that line).
+        errors = [line.strip() for line in output.splitlines() if re.search(
+            r"\b(?:errors?|failed|failure|fatal|panic|exception|traceback|timeout|"
+            r"TLS|SSL|certificate|DNS|connection)\b|timed out|no such host|HTTP(?:/[0-9.]+)? [45][0-9]{2}",
+            line, re.I)]
+        return len(errors) == 1 and bool(re.fullmatch(
+            r"Error: GET https://api\.github\.com/repos/helm/chart-releaser/releases/tags/v1\.6\.0: "
+            r"403 API rate limit (?:exceeded|of [0-9]+ still exceeded until "
+            r"[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2} [+-][0-9]{4} UTC, "
+            r"not making remote request\.)"
+            r"(?: \[rate reset in [-0-9.hmsµ]+\])?", errors[0]))
     return code == 0
 
 

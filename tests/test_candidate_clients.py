@@ -99,7 +99,9 @@ class CandidateClientsTests(unittest.TestCase):
 
     def test_chart_healthy_quota_is_tls_only(self):
         prefix = "Error: GET https://api.github.com/repos/helm/chart-releaser/releases/tags/v1.6.0: "
-        for message in ["403 API rate limit exceeded", "403 API rate limit of 60 still exceeded until 2026-10-24"]:
+        for message in ["403 API rate limit exceeded",
+                        "403 API rate limit of 60 still exceeded until "
+                        "2026-10-24 20:40:46 +0000 UTC, not making remote request. [rate reset in 31m59s]"]:
             self.assertTrue(CLIENTS.accepted(1, prefix + message, auth_control="cr"))
             self.assertFalse(CLIENTS.accepted(1, prefix + message, negative=True, auth_control="cr"))
         for output in ["403 Forbidden", "API rate limit exceeded", prefix + "403 Forbidden",
@@ -107,22 +109,42 @@ class CandidateClientsTests(unittest.TestCase):
             self.assertFalse(CLIENTS.accepted(1, output, auth_control="cr"))
         self.assertTrue(CLIENTS.accepted(0, "Index did not change", auth_control="cr"))
 
+    def test_chart_quota_rejects_mixed_diagnostics(self):
+        quota = ("Error: GET https://api.github.com/repos/helm/chart-releaser/releases/tags/v1.6.0: "
+                 "403 API rate limit exceeded")
+        progress = "Loading index file from git repository /tmp/chart/index.yaml\n"
+        usage = "\nUsage:\n  cr index [flags]\n"
+        self.assertTrue(CLIENTS.accepted(1, progress + quota + usage, auth_control="cr"))
+        for failure in ["Error: TLS certificate has expired", "fatal: fetch failed",
+                        "TLS certificate has expired", "HTTP 503", "connection refused",
+                        "Traceback: exception", "error: unrelated", quota]:
+            for mixed in [failure + "\n" + quota, quota + "\n" + failure,
+                          quota + " " + failure, progress + quota + usage + failure]:
+                with self.subTest(mixed=mixed):
+                    self.assertFalse(CLIENTS.accepted(1, mixed, auth_control="cr"))
+        for suffix in [" unexpectedly", " until nonsense", " [rate reset in nonsense]"]:
+            self.assertFalse(CLIENTS.accepted(1, quota + suffix, auth_control="cr"))
+
     def test_chart_rate_limit_receipt_does_not_claim_release_read(self):
         def execute(args, env, cwd, **kwargs):
             if args[0] == "bad":
                 return 1, CLIENTS.ISSUER_ERRORS[0]
             if args[0] == "healthy":
                 return 1, ("Error: GET https://api.github.com/repos/helm/chart-releaser/releases/tags/v1.6.0: "
-                           "403 API rate limit of 60 still exceeded until 2026-10-24")
+                           "403 API rate limit of 60 still exceeded until "
+                           "2026-10-24 20:40:46 +0000 UTC, not making remote request. "
+                           "[rate reset in 31m59s]" + extra)
             return 0, "version"
-        with patch.object(CLIENTS, "prepare_chart_probe", return_value=True), \
-             patch.object(CLIENTS, "commands", return_value={"cr": (lambda host: ["bad"], ["healthy"])}), \
-             patch.object(CLIENTS, "execute", side_effect=execute), contextlib.redirect_stdout(io.StringIO()) as output:
-            self.assertTrue(CLIENTS.qualify("release", Path("/tmp")))
-        result = json.loads(output.getvalue())
-        self.assertTrue(result["healthy_tls"])
-        self.assertFalse(result["healthy_operation_succeeded"])
-        self.assertFalse(result["healthy_authenticated"])
+        for extra in ["", "\nError: TLS certificate has expired"]:
+            with patch.object(CLIENTS, "prepare_chart_probe", return_value=True), \
+                 patch.object(CLIENTS, "commands", return_value={"cr": (lambda host: ["bad"], ["healthy"])}), \
+                 patch.object(CLIENTS, "execute", side_effect=execute), contextlib.redirect_stdout(io.StringIO()) as output:
+                self.assertEqual(CLIENTS.qualify("release", Path("/tmp")), not extra)
+            result = json.loads(output.getvalue())
+            self.assertEqual(result["healthy_tls"], not extra)
+            self.assertEqual(result["passed"], not extra)
+            self.assertFalse(result["healthy_operation_succeeded"])
+            self.assertFalse(result["healthy_authenticated"])
 
     def test_unexpected_chain_before_or_after_cannot_qualify(self):
         for before, after in [(False, True), (True, False), (True, True)]:
