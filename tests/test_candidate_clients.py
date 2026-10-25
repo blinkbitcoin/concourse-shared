@@ -69,6 +69,20 @@ class CandidateClientsTests(unittest.TestCase):
                        "Error: failed listing installations: unexpected status code: 404"]:
             self.assertFalse(CLIENTS.accepted(1, output, negative=True, auth_control="ghtoken"))
 
+    def test_cargo_audit_wrapped_distrust_cause(self):
+        prefix = ("error: couldn't fetch advisory database: git operation failed: "
+                  "An IO error occurred when talking to the server\nCaused by:\n"
+                  "  -> error sending request for url (https://example.test/probe.git)\n"
+                  "  -> client error (Connect)\n")
+        cause = "  -> invalid peer certificate: Other(OtherError(CertDistrusted))\n"
+        self.assertTrue(CLIENTS.accepted(1, prefix + cause, negative=True))
+        for code, output in [(0, prefix + cause), (None, prefix + cause),
+                             (1, prefix), (1, prefix + cause.replace("CertDistrusted", "OtherFailure")),
+                             (1, prefix + cause + "certificate has expired"),
+                             (1, prefix + cause + "HTTP 403")]:
+            with self.subTest(code=code, output=output):
+                self.assertFalse(CLIENTS.accepted(code, output, negative=True))
+
     def test_healthy_classifier(self):
         self.assertTrue(CLIENTS.accepted(0, "ok"))
         self.assertFalse(CLIENTS.accepted(1, "error"))

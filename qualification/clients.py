@@ -25,6 +25,7 @@ ISSUER_ERRORS = (
     "self-signed certificate in certificate chain",
     "invalid peer certificate: unknownissuer",
     "invalid peer certificate: certdistrusted",
+    "invalid peer certificate: other(othererror(certdistrusted))",
 )
 DUMMY_TOKEN = "public-tls-probe-not-a-secret"
 
