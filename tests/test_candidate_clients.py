@@ -19,6 +19,14 @@ SPEC.loader.exec_module(CLIENTS)
 
 
 class CandidateClientsTests(unittest.TestCase):
+    def setUp(self):
+        self.peers = patch.object(CLIENTS.chains, "pinned_peers", return_value={h: "127.0.0.1" for h in CLIENTS.HOSTS})
+        self.snapshots = patch.object(CLIENTS.chains, "snapshot", return_value={"matches": True})
+        self.peers.start()
+        self.snapshots.start()
+        self.addCleanup(self.peers.stop)
+        self.addCleanup(self.snapshots.stop)
+
     def test_clean_environment(self):
         with patch.dict("os.environ", {"AWS_SECRET_ACCESS_KEY": "do-not-forward", "HTTPS_PROXY": "invalid"}):
             env = CLIENTS.environment(Path("/tmp/sandbox"))
@@ -74,6 +82,43 @@ class CandidateClientsTests(unittest.TestCase):
             self.assertTrue(CLIENTS.accepted(1, good, auth_control=client))
             for code, message in [(0, good), (1, "401"), (1, "not authenticated")]:
                 self.assertFalse(CLIENTS.accepted(code, message, auth_control=client))
+
+    def test_chart_healthy_quota_is_tls_only(self):
+        prefix = "Error: GET https://api.github.com/repos/helm/chart-releaser/releases/tags/v1.6.0: "
+        for message in ["403 API rate limit exceeded", "403 API rate limit of 60 still exceeded until 2026-10-24"]:
+            self.assertTrue(CLIENTS.accepted(1, prefix + message, auth_control="cr"))
+            self.assertFalse(CLIENTS.accepted(1, prefix + message, negative=True, auth_control="cr"))
+        for output in ["403 Forbidden", "API rate limit exceeded", prefix + "403 Forbidden",
+                       prefix.replace("api.github.com", "unrelated.test") + "403 API rate limit exceeded"]:
+            self.assertFalse(CLIENTS.accepted(1, output, auth_control="cr"))
+        self.assertTrue(CLIENTS.accepted(0, "Index did not change", auth_control="cr"))
+
+    def test_chart_rate_limit_receipt_does_not_claim_release_read(self):
+        def execute(args, env, cwd, **kwargs):
+            if args[0] == "bad":
+                return 1, CLIENTS.ISSUER_ERRORS[0]
+            if args[0] == "healthy":
+                return 1, ("Error: GET https://api.github.com/repos/helm/chart-releaser/releases/tags/v1.6.0: "
+                           "403 API rate limit of 60 still exceeded until 2026-10-24")
+            return 0, "version"
+        with patch.object(CLIENTS, "prepare_chart_probe", return_value=True), \
+             patch.object(CLIENTS, "commands", return_value={"cr": (lambda host: ["bad"], ["healthy"])}), \
+             patch.object(CLIENTS, "execute", side_effect=execute), contextlib.redirect_stdout(io.StringIO()) as output:
+            self.assertTrue(CLIENTS.qualify("release", Path("/tmp")))
+        result = json.loads(output.getvalue())
+        self.assertTrue(result["healthy_tls"])
+        self.assertFalse(result["healthy_operation_succeeded"])
+        self.assertFalse(result["healthy_authenticated"])
+
+    def test_unexpected_chain_before_or_after_cannot_qualify(self):
+        for before, after in [(False, True), (True, False), (True, True)]:
+            with patch.object(CLIENTS.chains, "snapshot", side_effect=[{"matches": before}, {"matches": after}]), \
+                 patch.object(CLIENTS, "execute", return_value=(1, CLIENTS.ISSUER_ERRORS[0])) as execute:
+                result = CLIENTS.negative_probe("git", CLIENTS.HOSTS[0], ["git"], ["expected"], "127.0.0.1", {}, Path("/tmp"))
+            self.assertEqual(result["distrusted"], before and after)
+            self.assertEqual(execute.call_count, int(before))
+            if not before:
+                self.assertIsNone(result["chain_after"])
 
     def test_commands_profiles_and_fixed_hosts(self):
         for profile, expected in [("wincross", {"git"}), ("node", {"git", "gh", "gcloud", "ghtoken", "buf"}),
@@ -137,6 +182,7 @@ class CandidateClientsTests(unittest.TestCase):
             self.assertEqual(len(rows), 2)
             self.assertEqual(len(rows[0]["negative"]), 12)
             self.assertFalse(rows[0]["healthy_authenticated"])
+            self.assertEqual(rows[0]["healthy_operation_succeeded"], failed != "healthy")
 
     def test_ghtoken_stdout_diagnostics(self):
         def execute(args, env, cwd, **kwargs):

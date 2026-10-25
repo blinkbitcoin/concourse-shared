@@ -12,6 +12,8 @@ import tempfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "images" / "trust"))
 from verify import HOSTS
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from qualification import chains
 
 ISSUER_ERRORS = (
     "certificate signed by unknown authority",
@@ -46,7 +48,7 @@ def environment(home):
 def execute(args, env, cwd, *, stderr_only=False):
     try:
         result = subprocess.run(args, env=env, cwd=cwd, capture_output=True,
-                                text=True, timeout=60)
+                                text=True, timeout=60, stdin=subprocess.DEVNULL)
     except (OSError, subprocess.TimeoutExpired) as error:
         return None, type(error).__name__
     return result.returncode, result.stderr if stderr_only else result.stdout + result.stderr
@@ -79,7 +81,23 @@ def accepted(code, output, *, negative=False, auth_control=None):
             "Error: failed listing installations: unexpected status code: 401",
             "Error: failed listing installations: unexpected status code: 404",
         )
+    if auth_control == "cr" and code != 0:
+        return bool(re.search(
+            r"^Error: GET https://api\.github\.com/repos/helm/chart-releaser/releases/tags/v1\.6\.0: "
+            r"403 API rate limit (?:of [0-9]+ )?(?:still )?exceeded\b", output, re.M))
     return code == 0
+
+
+def negative_probe(client, host, command, expected, peer, env, home):
+    before = chains.snapshot(host, peer, expected, execute, env, home)
+    code, output, after = None, "Unexpected or unavailable published chain", None
+    if before["matches"]:
+        code, output = execute(command, env, home, stderr_only=client != "ghtoken")
+        after = chains.snapshot(host, peer, expected, execute, env, home)
+    distrusted = bool(before["matches"] and after["matches"] and
+                      accepted(code, output, negative=True, auth_control=client))
+    return {"host": host, "exit": code, "diagnostic": output[-600:],
+            "chain_before": before, "chain_after": after, "distrusted": distrusted}
 
 
 def commands(profile, home):
@@ -163,6 +181,7 @@ def prepare_chart_probe(home, env):
 
 def qualify(profile, home):
     env = environment(home)
+    expected, peers = chains.published_chains(), chains.pinned_peers()
     if profile == "release" and not prepare_chart_probe(home, env):
         print(json.dumps({"setup": "chart-index-fixture", "passed": False}), flush=True)
         return False
@@ -191,9 +210,8 @@ def qualify(profile, home):
         version_code, version = execute(version_command, env, working)
         results = []
         for host in HOSTS:
-            code, output = execute(negative_command(host), env, working, stderr_only=client != "ghtoken")
-            results.append({"host": host, "exit": code, "diagnostic": output[-600:],
-                            "distrusted": accepted(code, output, negative=True, auth_control=client)})
+            results.append(negative_probe(client, host, negative_command(host),
+                                          expected[host], peers[host], env, working))
         code, output = execute(healthy_command, env, working)
         healthy = accepted(code, output, auth_control=client)
         good = version_code == 0 and all(row["distrusted"] for row in results) and healthy
@@ -202,7 +220,8 @@ def qualify(profile, home):
                           "version_exit": version_code,
                           "negative": results, "healthy_tls": healthy,
                           "healthy_exit": code, "healthy_diagnostic": output[:400],
-                          "healthy_authenticated": False, "passed": good}), flush=True)
+                          "healthy_authenticated": False,
+                          "healthy_operation_succeeded": code == 0, "passed": good}), flush=True)
     return passed
 
 

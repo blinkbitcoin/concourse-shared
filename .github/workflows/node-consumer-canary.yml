@@ -3,6 +3,7 @@ name: Published Node consumer canary
   pull_request:
     paths:
       - '.github/workflows/node-consumer-canary.yml'
+      - '.github/workflows/candidate-qualification.yml'
 permissions:
   contents: read
 jobs:

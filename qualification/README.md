@@ -25,6 +25,18 @@ hostname mismatch, timeout, DNS failure and auth
 failure do not count as negative-test success. The artifact's existing gate
 also verifies all fourteen pinned published certificate-chain fixtures offline.
 
+Before starting a disposable candidate container, the workflow resolves each
+negative hostname once and passes explicit Docker `--add-host` mappings. For
+every client/hostname attempt, independent OpenSSL connections to that pinned
+IPv4 peer compare the complete served chain (ordered DER SHA-256 fingerprints)
+with the checksum-verified published fixture immediately before and after the
+client command. Missing, changed, malformed or unexpected chains fail the result;
+a failed preflight does not run the client. Receipts retain both observations.
+This is independent per-attempt chain identity evidence, not an interception of
+the client's own TLS session. It cannot rule out a server deliberately serving
+different chains selectively to different clients. No trust store is changed.
+The host mappings exist only inside the disposable test container.
+
 GitHub CLI requires a token to attempt its API command. Both its negative
 requests and healthy control use a literal non-secret dummy token. The healthy
 GitHub API's explicit HTTP401 Bad credentials response proves TLS connectivity
@@ -52,7 +64,12 @@ inconclusive and fails qualification when its certificate cause is hidden.
 Chart-releaser runs its actual `index` command against a local public-repository
 fixture and synthetic chart package. It tests the GitHub release-read endpoint
 with `--git-base-url`; the healthy control reads the existing upstream v1.6.0
-release. Neither `--push` nor `--pr` is set, so it creates no remote release,
+release. A successful index operation records `healthy_operation_succeeded:
+true`. The exact GitHub API rate-limit diagnostic for that release URL also
+establishes `healthy_tls: true`, but records `healthy_operation_succeeded: false`;
+it is not release-read success. Other 403 responses and unrelated endpoints fail.
+This permits shared unauthenticated runner quota exhaustion without weakening
+negative certificate tests. Neither `--push` nor `--pr` is set, so it creates no remote release,
 commit or pull request. The local fixture ref is discarded with the temporary
 directory. This does not qualify release uploads or authenticated private APIs.
 
@@ -67,7 +84,11 @@ the exact Node candidate. This exercises the consumer commands without its
 release/publish steps. It records the checked-out commit and resolved image;
 the live Concourse pipeline still requires its own adoption and readback.
 
-CI retains resolved digests, artifact trust output and installed-client JSON
+Both workflows rerun when the candidate matrix changes. A contract assertion
+requires their Node image digests to agree. Trust-source changes also trigger
+the matrix because the probe imports the published host/chain inputs.
+
+CI retains resolved digests, peer mappings, artifact trust output and installed-client JSON
 receipts even on failure. A failed check holds adoption; it never promotes an
 alias or retries a production operation.
 
@@ -95,7 +116,7 @@ Command references: [gcloud endpoint overrides](https://docs.cloud.google.com/sd
 ## Local tests
 
 ```sh
-python3 -m unittest discover -s tests -p test_candidate_clients.py -v
-python3 -m coverage run --branch --source=qualification -m unittest discover -s tests -p test_candidate_clients.py
+python3 -m unittest discover -s tests -p 'test_candidate*.py' -v
+python3 -m coverage run --branch --source=qualification -m unittest discover -s tests -p 'test_candidate*.py'
 python3 -m coverage report --fail-under=100
 ```
