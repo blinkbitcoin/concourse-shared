@@ -11,6 +11,8 @@ FROM trust-base AS cargo-audit-build
 COPY images/rust-concourse/cargo-audit /build/recipe
 # Keep the patched transport scoped to Cargo Audit. Other tools use crates.io.
 RUN CARGO_HOME=/build/cargo-home sh /build/recipe/prepare.sh /build/source \
+  && python3 /build/recipe/verify-lock.py \
+    /build/source/cargo-audit-0.22.2/Cargo.lock /build/recipe/Cargo.lock \
   && cp /build/recipe/Cargo.lock /build/source/cargo-audit-0.22.2/Cargo.lock \
   && CARGO_HOME=/build/cargo-home cargo install --locked \
     --path /build/source/cargo-audit-0.22.2 --root /out --target-dir /build/target \
