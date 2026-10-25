@@ -514,6 +514,7 @@ resources:
   source:
     paths:
     - images/rust-concourse/Dockerfile
+    - images/rust-concourse/cargo-audit/*
     - images/trust/*
     uri: git@github.com:blinkbitcoin/concourse-shared.git
     branch: main
