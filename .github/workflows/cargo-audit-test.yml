@@ -22,7 +22,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: blinkbitcoin/concourse-shared
-          ref: ffff246dad55d009295871d415f43bb3b73da1e3
+          ref: d1db4db13ae2c187d987becc0da6875e770de865
           path: qualification-source
           persist-credentials: false
       - run: python3 -m unittest discover -s tests -p 'test_cargo_audit_build.py' -v
