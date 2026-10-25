@@ -1,0 +1,60 @@
+name: Cargo Audit transport regression
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/cargo-audit-test.yml'
+      - 'images/rust-concourse/**'
+      - 'images/trust/**'
+      - 'tests/test_cargo_audit_build.py'
+permissions:
+  contents: read
+jobs:
+  cargo-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      IMAGE: us.gcr.io/galoy-org/rust-concourse@sha256:e4b78a672d0d4521a370d675b55215874148cecee311d154279ed0d35bf11e8b
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Fetch unchanged strict qualification harness
+        uses: actions/checkout@v4
+        with:
+          repository: blinkbitcoin/concourse-shared
+          ref: d1db4db13ae2c187d987becc0da6875e770de865
+          path: qualification-source
+          persist-credentials: false
+      - run: python3 -m unittest discover -s tests -p 'test_cargo_audit_build.py' -v
+      - name: Build the locked Cargo Audit binary without publishing
+        run: |
+          mkdir receipts
+          docker build --target cargo-audit-build -f images/rust-concourse/Dockerfile -t cargo-audit-regression .
+          container=$(docker create cargo-audit-regression)
+          trap 'docker rm "$container"' EXIT
+          docker cp "$container:/out/bin/cargo-audit" receipts/cargo-audit
+          sha256sum receipts/cargo-audit images/rust-concourse/cargo-audit/Cargo.lock > receipts/build-sha256.txt
+      - name: Resolve the existing Rust runtime
+        run: |
+          docker pull --platform linux/amd64 "$IMAGE"
+          docker image inspect "$IMAGE" --format '{{json .RepoDigests}}' > receipts/resolved-digests.json
+          python3 -c 'import json,os; assert os.environ["IMAGE"] in json.load(open("receipts/resolved-digests.json"))'
+      - name: Require explicit TLS rejection and healthy Git fetch
+        run: |
+          set -o pipefail
+          python3 qualification-source/qualification/chains.py > receipts/host-arguments.txt
+          mapfile -t pinned_hosts < receipts/host-arguments.txt
+          docker run --rm --platform linux/amd64 "${pinned_hosts[@]}" --entrypoint python3 \
+            -v "$PWD/qualification-source/images/trust:/source/images/trust:ro" \
+            -v "$PWD/qualification-source/qualification:/source/qualification:ro" \
+            -v "$PWD/receipts/cargo-audit:/usr/local/cargo/bin/cargo-audit:ro" "$IMAGE" \
+            /source/qualification/clients.py qualify rust \
+            2>&1 | tee receipts/installed-clients.jsonl
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: cargo-audit-regression-receipts
+          path: |
+            receipts/*.txt
+            receipts/*.json
+            receipts/*.jsonl

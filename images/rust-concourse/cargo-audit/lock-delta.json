@@ -1,0 +1,199 @@
+{
+  "baseline_sha256": "dd1bd59d6df6014bd223ee70a68cf8ee0e901f5b0df4a7cd84efe729fd5505d8",
+  "remove": [
+    {
+      "checksum": "62e0021ea2c22aed41653bc7e1419abb2c97e038ff2c33d0e1309e49a97deec0",
+      "dependencies": [
+        "base64",
+        "bytes",
+        "encoding_rs",
+        "futures-channel",
+        "futures-core",
+        "futures-util",
+        "h2",
+        "http",
+        "http-body",
+        "http-body-util",
+        "hyper",
+        "hyper-rustls",
+        "hyper-util",
+        "js-sys",
+        "log",
+        "mime",
+        "percent-encoding",
+        "pin-project-lite",
+        "quinn",
+        "rustls",
+        "rustls-pki-types",
+        "rustls-platform-verifier",
+        "sync_wrapper",
+        "tokio",
+        "tokio-rustls",
+        "tower",
+        "tower-http",
+        "tower-service",
+        "url",
+        "wasm-bindgen",
+        "wasm-bindgen-futures",
+        "web-sys"
+      ],
+      "name": "reqwest",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "version": "0.13.3"
+    },
+    {
+      "checksum": "7cd0e34995b1aab0fa8dff2af8db726a0bfad3e119c89302604463264046e7ff",
+      "dependencies": [
+        "base64",
+        "bstr",
+        "gix-command",
+        "gix-credentials",
+        "gix-features",
+        "gix-packetline",
+        "gix-quote",
+        "gix-sec",
+        "gix-url",
+        "reqwest",
+        "thiserror"
+      ],
+      "name": "gix-transport",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "version": "0.57.1"
+    },
+    {
+      "checksum": "96547c2556ec9d12fb1578c4eaf448b04993e7fb79cbaad930a656880a6bdfa0",
+      "dependencies": [
+        "base64",
+        "bytes",
+        "futures-channel",
+        "futures-util",
+        "http",
+        "http-body",
+        "hyper",
+        "ipnet",
+        "libc",
+        "percent-encoding",
+        "pin-project-lite",
+        "socket2",
+        "tokio",
+        "tower-service",
+        "tracing"
+      ],
+      "name": "hyper-util",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "version": "0.1.20"
+    },
+    {
+      "checksum": "bb18337ba2830bb43367d1af43819c8c78f31337f079fc76d0f1f1750a173126",
+      "dependencies": [
+        "bstr",
+        "faster-hex",
+        "gix-trace",
+        "thiserror"
+      ],
+      "name": "gix-packetline",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "version": "0.21.4"
+    }
+  ],
+  "add": [
+    {
+      "checksum": "16a1cfa75cc186dd73d5818e510e042e40927bccc9c236b061cea97e1eb08029",
+      "dependencies": [
+        "base64 0.23.1",
+        "bytes",
+        "encoding_rs",
+        "futures-channel",
+        "futures-core",
+        "futures-util",
+        "h2",
+        "http",
+        "http-body",
+        "http-body-util",
+        "hyper",
+        "hyper-rustls",
+        "hyper-util",
+        "js-sys",
+        "log",
+        "mime",
+        "percent-encoding",
+        "pin-project-lite",
+        "quinn",
+        "rustls",
+        "rustls-pki-types",
+        "rustls-platform-verifier",
+        "sync_wrapper",
+        "tokio",
+        "tokio-rustls",
+        "tower",
+        "tower-http",
+        "tower-service",
+        "url",
+        "wasm-bindgen",
+        "wasm-bindgen-futures",
+        "web-sys"
+      ],
+      "name": "reqwest",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "version": "0.13.5"
+    },
+    {
+      "checksum": "96547c2556ec9d12fb1578c4eaf448b04993e7fb79cbaad930a656880a6bdfa0",
+      "dependencies": [
+        "base64 0.22.1",
+        "bytes",
+        "futures-channel",
+        "futures-util",
+        "http",
+        "http-body",
+        "hyper",
+        "ipnet",
+        "libc",
+        "percent-encoding",
+        "pin-project-lite",
+        "socket2",
+        "tokio",
+        "tower-service",
+        "tracing"
+      ],
+      "name": "hyper-util",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "version": "0.1.20"
+    },
+    {
+      "checksum": "ac07cdecf99051d9a5238b80f35af32cdeba5b336e55d957b318b50137e18da5",
+      "name": "base64",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "version": "0.23.1"
+    },
+    {
+      "checksum": "b217dd0ee0c4021ecf169a4a519b1b4f80d15e3f3765f3dc466223dc0ac891d7",
+      "dependencies": [
+        "bstr",
+        "faster-hex",
+        "gix-trace",
+        "thiserror"
+      ],
+      "name": "gix-packetline",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "version": "0.21.5"
+    },
+    {
+      "dependencies": [
+        "base64 0.22.1",
+        "bstr",
+        "gix-command",
+        "gix-credentials",
+        "gix-features",
+        "gix-packetline",
+        "gix-quote",
+        "gix-sec",
+        "gix-url",
+        "reqwest",
+        "thiserror"
+      ],
+      "name": "gix-transport",
+      "version": "0.57.2"
+    }
+  ]
+}

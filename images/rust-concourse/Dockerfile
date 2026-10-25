@@ -6,7 +6,22 @@ RUN apt-get -o APT::Update::Error-Mode=any update \
   && apt-get install -y --no-remove --no-install-recommends python3 ca-certificates curl \
   && /usr/bin/python3 /usr/local/lib/ci-trust/verify.py refresh --rustup
 
+FROM trust-base AS cargo-audit-build
+
+COPY images/rust-concourse/cargo-audit /build/recipe
+# Keep the patched transport scoped to Cargo Audit. Other tools use crates.io.
+RUN CARGO_HOME=/build/cargo-home sh /build/recipe/prepare.sh /build/source \
+  && python3 /build/recipe/verify-lock.py \
+    /build/source/cargo-audit-0.22.2/Cargo.lock /build/recipe/Cargo.lock \
+  && cp /build/recipe/Cargo.lock /build/source/cargo-audit-0.22.2/Cargo.lock \
+  && CARGO_HOME=/build/cargo-home cargo install --locked \
+    --path /build/source/cargo-audit-0.22.2 --root /out --target-dir /build/target \
+    --config 'patch.crates-io.gix-transport.path="/build/source/gix-transport-0.57.2"' \
+  && rm -rf /build/source /build/target /build/cargo-home
+
 FROM trust-base AS final
+
+COPY --from=cargo-audit-build /out/bin/cargo-audit /usr/local/cargo/bin/cargo-audit
 
 RUN rustc --version
 
@@ -15,7 +30,7 @@ RUN rustup component add clippy
 
 # Nextest requires its published lockfile; this release includes the TLS fixes.
 RUN cargo install --locked cargo-nextest --version 0.9.149
-RUN cargo install cargo-deny cargo-audit typos-cli sqlx-cli handlebars-cli
+RUN cargo install cargo-deny typos-cli sqlx-cli handlebars-cli
 
 # Install gcloud
 ENV CLOUDSDK_CORE_DISABLE_PROMPTS 1
