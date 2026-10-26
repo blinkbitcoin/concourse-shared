@@ -1,0 +1,46 @@
+name: Published Node consumer canary
+'on':
+  pull_request:
+    paths:
+      - '.github/workflows/node-consumer-canary.yml'
+      - '.github/workflows/candidate-qualification.yml'
+permissions:
+  contents: read
+jobs:
+  blink-client:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      IMAGE: us.gcr.io/galoy-org/nodejs-concourse@sha256:8e9d5591bc55697df061390c745c422958370cf714e00249b78d4784fee7d6a6
+      CONSUMER_REVISION: 393276b690b8f809f068cfb3e3f2afc54ff91e76
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: blinkbitcoin/blink-client
+          ref: ${{ env.CONSUMER_REVISION }}
+          persist-credentials: false
+          path: consumer
+      - name: Verify source and published image identity
+        run: |
+          mkdir receipts
+          test "$(git -C consumer rev-parse HEAD)" = "$CONSUMER_REVISION"
+          git -C consumer rev-parse HEAD > receipts/consumer-revision.txt
+          docker pull --platform linux/amd64 "$IMAGE"
+          docker image inspect "$IMAGE" --format '{{json .RepoDigests}}' > receipts/resolved-digests.json
+          python3 -c 'import json,os; assert os.environ["IMAGE"] in json.load(open("receipts/resolved-digests.json"))'
+      - name: Run consumer dependency installation, tests and build
+        run: |
+          set -o pipefail
+          docker run --rm --platform linux/amd64 --entrypoint bash \
+            -v "$PWD/consumer:/consumer" -w /consumer "$IMAGE" -euc '
+              node --version
+              pnpm --version
+              pnpm install --frozen-lockfile --store-dir .pnpm-store
+              pnpm test --runInBand
+              pnpm tsup
+            ' 2>&1 | tee receipts/consumer.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: node-blink-client-canary
+          path: receipts/
