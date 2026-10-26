@@ -28,7 +28,7 @@ jobs:
             verifier: --node
           - profile: rust
             repository: rust-concourse
-            digest: sha256:e4b78a672d0d4521a370d675b55215874148cecee311d154279ed0d35bf11e8b
+            digest: sha256:e3efda4c461ed0ca5d341b8dc8635f0f953a6e82dee5a7826ac5eb96ab3d98ed
             verifier: --rustup
           - profile: release
             repository: release-pipeline
