@@ -28,6 +28,7 @@ jobs:
           echo '0b5f660b10e1655cbde4f25d6e1683815f0e5e66983b3f77576591e73a800f43  /tmp/fly.tgz' | sha256sum -c -
           tar -xzf /tmp/fly.tgz -C /tmp fly
           sudo install -m 0755 /tmp/fly /usr/local/bin/fly
+      - run: python3 -m pip install -r qualification/requirements-test.txt
       - run: python3 -m unittest discover -s tests -p 'test_*.py' -v
       - run: fly validate-pipeline -c ci/build/pipeline.yml
       - name: Verify public GCR manifest readback without credentials

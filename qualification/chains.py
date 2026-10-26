@@ -7,6 +7,8 @@ from pathlib import Path
 import re
 import socket
 import sys
+import tempfile
+import time
 import zipfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "images" / "trust"))
@@ -43,15 +45,42 @@ def pinned_peers(hosts_file=Path("/etc/hosts")):
     return peers
 
 
-def snapshot(host, peer, expected, execute, env, home):
+def snapshot(host, peer, expected, execute, env, home, *, minimum_validity=0):
     code, output = execute(["openssl", "s_client", "-connect", f"{peer}:443",
                             "-servername", host, "-showcerts"], env, home)
     try:
         actual = fingerprints(output)
     except ValueError:
         actual = []
-    return {"peer": peer, "expected_sha256": expected, "observed_sha256": actual,
-            "matches": code == 0 and actual == expected}
+    result = {"peer": peer, "expected_sha256": expected, "observed_sha256": actual,
+              "valid_now": False, "matches": False, "reason": "chain-unavailable-or-mismatched"}
+    if code != 0 or actual != expected or len(actual) < 2:
+        return result
+    # Trust the observed final certificate only for this integrity control.
+    # Never add it to a client's trust store. Omit -attime for the current-time
+    # check: signatures, purpose, hostname and validity must all succeed now.
+    certificates = re.findall(r"-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----", output, re.S)
+    with tempfile.TemporaryDirectory(dir=home) as directory:
+        chain, anchor = Path(directory) / "chain.pem", Path(directory) / "anchor.pem"
+        chain.write_text("\n".join(certificates))
+        anchor.write_text(certificates[-1])
+        args = ["openssl", "verify", "-trusted", str(anchor), "-partial_chain",
+                "-no-CAfile", "-no-CApath", "-no-CAstore", "-purpose", "sslserver",
+                "-verify_hostname", host, "-untrusted", str(chain)]
+        code, diagnostic = execute(args + [str(chain)], env, home)
+        result.update(valid_now=code == 0, reason="chain-invalid-now", validity_diagnostic=diagnostic[-600:])
+        if code != 0:
+            return result
+        if minimum_validity:
+            code, diagnostic = execute(args + ["-attime", str(int(time.time()) + minimum_validity),
+                                                str(chain)], env, home)
+            result.update(minimum_validity_seconds=minimum_validity,
+                          validity_diagnostic=diagnostic[-600:])
+            if code != 0:
+                result["reason"] = "chain-expires-within-warning-window"
+                return result
+    result.update(matches=True, reason="valid-published-chain")
+    return result
 
 
 def docker_arguments():

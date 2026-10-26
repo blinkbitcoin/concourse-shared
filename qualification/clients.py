@@ -9,6 +9,8 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import time
+import zipfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "images" / "trust"))
 from verify import HOSTS
@@ -28,6 +30,23 @@ ISSUER_ERRORS = (
     "invalid peer certificate: other(othererror(certdistrusted))",
 )
 DUMMY_TOKEN = "public-tls-probe-not-a-secret"
+COMMAND_TIMEOUT = 60
+QUALIFICATION_TIMEOUT = 18 * 60
+EXPIRY_WARNING = 60 * 24 * 60 * 60
+VERSION_COMMANDS = {
+    "git": ["git", "--version"], "gh": ["gh", "--version"],
+    "ghtoken": ["ghtoken", "--version"],
+    "gcloud": ["/root/google-cloud-sdk/bin/gcloud", "--version"],
+    "buf": ["buf", "--version"], "cargo-audit": ["cargo", "audit", "--version"],
+    "cr": ["cr", "version"], "helm": ["helm", "version", "--short"],
+    "kubectl": ["kubectl", "version", "--client=true", "--short"],
+    "certifi": [sys.executable, "-m", "pip", "show", "certifi"],
+    "pip": [sys.executable, "-m", "pip", "--version"],
+}
+
+
+class QualificationDeadline(Exception):
+    """Leave a structured failure before the outer CI timeout."""
 
 
 def environment(home):
@@ -35,7 +54,7 @@ def environment(home):
     return {
         "PATH": "/usr/local/cargo/bin:/usr/local/bin:/usr/bin:/bin",
         "HOME": str(home), "LC_ALL": "C", "GH_TOKEN": DUMMY_TOKEN,
-        "KUBECONFIG": "/dev/null", "GIT_TERMINAL_PROMPT": "0",
+        "PIP_CONFIG_FILE": "/dev/null", "KUBECONFIG": "/dev/null", "GIT_TERMINAL_PROMPT": "0",
         "CARGO_HOME": "/usr/local/cargo", "RUSTUP_HOME": "/usr/local/rustup",
         "CLOUDSDK_CONFIG": str(home / "gcloud"),
         "CLOUDSDK_AUTH_ACCESS_TOKEN": DUMMY_TOKEN,
@@ -46,10 +65,10 @@ def environment(home):
     }
 
 
-def execute(args, env, cwd, *, stderr_only=False):
+def execute(args, env, cwd, *, stderr_only=False, timeout=COMMAND_TIMEOUT):
     try:
         result = subprocess.run(args, env=env, cwd=cwd, capture_output=True,
-                                text=True, timeout=60, stdin=subprocess.DEVNULL)
+                                text=True, timeout=timeout, stdin=subprocess.DEVNULL)
     except (OSError, subprocess.TimeoutExpired) as error:
         return None, type(error).__name__
     return result.returncode, result.stderr if stderr_only else result.stdout + result.stderr
@@ -65,7 +84,7 @@ def accepted(code, output, *, negative=False, auth_control=None):
                 "Error: failed listing installations: unable to POST to https://"):
             return False
         message = output.lower()
-        unrelated = ("certificate has expired", "certificate is expired", "not yet valid",
+        unrelated = ("certificate has expired", "certificate is expired", "expired certificate", "not yet valid",
                      "hostname mismatch", "doesn't match", "does not match",
                      "no alternative certificate subject name")
         http_response = re.search(r"\bhttp(?:error)?(?:/\d(?:\.\d)?)?[ :]+[1-5]\d\d\b", message)
@@ -92,19 +111,18 @@ def accepted(code, output, *, negative=False, auth_control=None):
             line, re.I)]
         return len(errors) == 1 and bool(re.fullmatch(
             r"Error: GET https://api\.github\.com/repos/helm/chart-releaser/releases/tags/v1\.6\.0: "
-            r"403 API rate limit (?:exceeded|of [0-9]+ still exceeded until "
-            r"[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2} [+-][0-9]{4} UTC, "
-            r"not making remote request\.)"
+            r"403 API rate limit exceeded"
             r"(?: \[rate reset in [-0-9.hmsµ]+\])?", errors[0]))
     return code == 0
 
 
-def negative_probe(client, host, command, expected, peer, env, home):
-    before = chains.snapshot(host, peer, expected, execute, env, home)
+def negative_probe(client, host, command, expected, peer, env, home, run=None):
+    run = run or execute
+    before = chains.snapshot(host, peer, expected, run, env, home)
     code, output, after = None, "Unexpected or unavailable published chain", None
     if before["matches"]:
-        code, output = execute(command, env, home, stderr_only=client != "ghtoken")
-        after = chains.snapshot(host, peer, expected, execute, env, home)
+        code, output = run(command, env, home, stderr_only=client != "ghtoken")
+        after = chains.snapshot(host, peer, expected, run, env, home)
     distrusted = bool(before["matches"] and after["matches"] and
                       accepted(code, output, negative=True, auth_control=client))
     return {"host": host, "exit": code, "diagnostic": output[-600:],
@@ -141,35 +159,39 @@ def commands(profile, home):
                  "--index-path", str(home / "chart-releaser/index.yaml")]
         clients["cr"] = (lambda host: chart + ["--git-base-url", f"https://{host}/"], chart)
         clients.update({
-            "helm": (lambda host: ["helm", "repo", "add", "negative", f"https://{host}"],
+            "helm": (lambda host: ["helm", "repo", "add", "negative-" + host, f"https://{host}"],
                      ["helm", "repo", "add", "healthy", "https://charts.helm.sh/stable"]),
             "kubectl": (lambda host: ["kubectl", "--token=" + DUMMY_TOKEN,
                         "--server=https://" + host, "--request-timeout=30s", "get", "--raw=/"],
                         ["kubectl", "--token=" + DUMMY_TOKEN, "--server=https://kubernetes.io",
                          "--request-timeout=30s", "get", "--raw=/"]),
         })
-        for backend in ("certifi", "pip"):
-            prefix = [sys.executable, str(Path(__file__).resolve()), "python-request", backend]
-            clients[backend] = (lambda host, p=prefix: p + [f"https://{host}/"],
-                                prefix + ["https://pypi.org/simple/pip/"])
+        prefix = [sys.executable, str(Path(__file__).resolve()), "certifi-request"]
+        clients["certifi"] = (lambda host: prefix + [f"https://{host}/"],
+                              prefix + ["https://pypi.org/simple/pip/"])
+        pip = [sys.executable, "-m", "pip", "download", "--no-deps", "--no-cache-dir",
+               "--only-binary=:all:", "--disable-pip-version-check", "--no-input",
+               "--retries", "0", "--timeout", "10"]
+        clients["pip"] = (
+            lambda host: pip + ["--dest", str(home / ("pip-" + host)), "--index-url",
+                                f"https://{host}/simple/", "candidate-probe==0"],
+            pip + ["--dest", str(home / "pip-healthy"), "--index-url",
+                   "https://pypi.org/simple/", "pip==26.2.2"],
+        )
     return clients
 
 
-def python_request(backend, url):
-    if backend == "certifi":
-        import certifi
-        import ssl
-        import urllib.request
-        with urllib.request.urlopen(url, context=ssl.create_default_context(
-                cafile=certifi.where()), timeout=30) as response:
-            return response.status
-    from pip._vendor import requests
-    response = requests.get(url, timeout=30)
-    response.raise_for_status()
-    return response.status_code
+def certifi_request(url):
+    import certifi
+    import ssl
+    import urllib.request
+    with urllib.request.urlopen(url, context=ssl.create_default_context(
+            cafile=certifi.where()), timeout=30) as response:
+        return response.status
 
 
-def prepare_chart_probe(home, env):
+def prepare_chart_probe(home, env, run=None):
+    run = run or execute
     directory = home / "chart-releaser"
     directory.mkdir()
     # Clone a public fixture; never create or push a release/PR/commit.
@@ -177,7 +199,7 @@ def prepare_chart_probe(home, env):
         ["git", "clone", "--depth=1", "--branch", "v1.6.0", "https://github.com/helm/chart-releaser.git", "."],
         ["git", "update-ref", "refs/remotes/origin/gh-pages", "HEAD"],
     ):
-        code, _ = execute(command, env, directory)
+        code, _ = run(command, env, directory)
         if code != 0:
             return False
     packages = directory / "packages"
@@ -191,39 +213,63 @@ def prepare_chart_probe(home, env):
 
 
 def qualify(profile, home):
+    deadline = time.monotonic() + QUALIFICATION_TIMEOUT
+
+    def run(args, env, cwd, **kwargs):
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise QualificationDeadline()
+        result = execute(args, env, cwd, timeout=min(COMMAND_TIMEOUT, remaining), **kwargs)
+        if time.monotonic() >= deadline:
+            raise QualificationDeadline()
+        return result
+
+    try:
+        return qualify_clients(profile, home, run)
+    except QualificationDeadline:
+        print(json.dumps({"aborted": "qualification-deadline", "passed": False}), flush=True)
+    except (OSError, ValueError, KeyError, zipfile.BadZipFile) as error:
+        print(json.dumps({"setup": "qualification-inputs", "error": type(error).__name__,
+                          "passed": False}), flush=True)
+    return False
+
+
+def qualify_clients(profile, home, run):
     env = environment(home)
     expected, peers = chains.published_chains(), chains.pinned_peers()
-    if profile == "release" and not prepare_chart_probe(home, env):
+    for host in HOSTS:
+        observed = chains.snapshot(host, peers[host], expected[host], run, env, home,
+                                   minimum_validity=EXPIRY_WARNING)
+        if not observed["matches"]:
+            print(json.dumps({"setup": "chain-preflight", "host": host, "chain": observed,
+                              "passed": False}), flush=True)
+            return False
+    if profile == "release" and not prepare_chart_probe(home, env, run):
         print(json.dumps({"setup": "chart-index-fixture", "passed": False}), flush=True)
         return False
     if profile == "rust":
         (home / "Cargo.lock").write_text('version = 4\n[[package]]\nname = "candidate-probe"\nversion = "0.1.0"\n')
     if profile != "wincross":
         # This disposable key belongs to no GitHub App. Never use operator keys.
-        code, _ = execute(["openssl", "genrsa", "-out", str(home / "probe-key.pem"), "2048"], env, home)
+        code, _ = run(["openssl", "genrsa", "-out", str(home / "probe-key.pem"), "2048"], env, home)
         if code != 0:
             print(json.dumps({"setup": "synthetic-app-key", "passed": False}), flush=True)
             return False
     passed = True
     for client, (negative_command, healthy_command) in commands(profile, home).items():
-        version_command = {
-            "git": ["git", "--version"], "gh": ["gh", "--version"],
-            "ghtoken": ["ghtoken", "--version"],
-            "gcloud": ["/root/google-cloud-sdk/bin/gcloud", "--version"],
-            "buf": ["buf", "--version"], "cargo-audit": ["cargo", "audit", "--version"],
-            "cr": ["cr", "version"],
-            "helm": ["helm", "version", "--short"],
-            "kubectl": ["kubectl", "version", "--client=true", "--short"],
-            "certifi": [sys.executable, "-m", "pip", "show", "certifi"],
-            "pip": [sys.executable, "-m", "pip", "--version"],
-        }[client]
+        version_command = VERSION_COMMANDS[client]
         working = home / "chart-releaser" if client == "cr" else home
-        version_code, version = execute(version_command, env, working)
+        version_code, version = run(version_command, env, working)
         results = []
         for host in HOSTS:
             results.append(negative_probe(client, host, negative_command(host),
-                                          expected[host], peers[host], env, working))
-        code, output = execute(healthy_command, env, working)
+                                          expected[host], peers[host], env, working, run))
+            probe = results[-1]
+            if not probe["chain_before"]["matches"] or not probe["chain_after"]["matches"]:
+                print(json.dumps({"aborted": "chain-drift", "client": client,
+                                  "probe": probe, "passed": False}), flush=True)
+                return False
+        code, output = run(healthy_command, env, working)
         healthy = accepted(code, output, auth_control=client)
         good = version_code == 0 and all(row["distrusted"] for row in results) and healthy
         passed = passed and good
@@ -247,7 +293,7 @@ def smoke(profile, home):
     elif profile == "node":
         args = ["node", "--eval", 'require("node:assert").equal(2 + 2, 4)']
     else:
-        args = ["python3", "-m", "pip", "check"]
+        args = [sys.executable, "-m", "pip", "check"]
     code, _ = execute(args, env, home)
     print(json.dumps({"tooling_smoke": profile, "passed": code == 0}), flush=True)
     return code == 0
@@ -258,12 +304,11 @@ def main(argv=None):
     sub = parser.add_subparsers(dest="mode", required=True)
     probe = sub.add_parser("qualify")
     probe.add_argument("profile", choices=("node", "rust", "release", "wincross"))
-    request = sub.add_parser("python-request")
-    request.add_argument("backend", choices=("certifi", "pip"))
+    request = sub.add_parser("certifi-request")
     request.add_argument("url")
     args = parser.parse_args(argv)
-    if args.mode == "python-request":
-        status = python_request(args.backend, args.url)
+    if args.mode == "certifi-request":
+        status = certifi_request(args.url)
         return 0 if status == 200 else 1
     with tempfile.TemporaryDirectory(prefix="candidate-client-") as home:
         clients_pass = qualify(args.profile, Path(home))

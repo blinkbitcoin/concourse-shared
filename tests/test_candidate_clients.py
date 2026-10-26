@@ -53,7 +53,7 @@ class CandidateClientsTests(unittest.TestCase):
         for code, error in [(None, "timeout"), (0, CLIENTS.ISSUER_ERRORS[0]),
                             (1, "DNS error"), (1, "HTTP 401"), (1, "timed out")]:
             self.assertFalse(CLIENTS.accepted(code, error, negative=True))
-        for error in ["certificate has expired", "certificate is expired", "not yet valid",
+        for error in ["certificate has expired", "certificate is expired", "expired certificate", "not yet valid",
                       "hostname mismatch", "doesn't match", "does not match",
                       "no alternative certificate subject name"]:
             self.assertFalse(CLIENTS.accepted(1, CLIENTS.ISSUER_ERRORS[0] + error, negative=True))
@@ -99,11 +99,12 @@ class CandidateClientsTests(unittest.TestCase):
 
     def test_chart_healthy_quota_is_tls_only(self):
         prefix = "Error: GET https://api.github.com/repos/helm/chart-releaser/releases/tags/v1.6.0: "
-        for message in ["403 API rate limit exceeded",
-                        "403 API rate limit of 60 still exceeded until "
-                        "2026-10-24 20:40:46 +0000 UTC, not making remote request. [rate reset in 31m59s]"]:
-            self.assertTrue(CLIENTS.accepted(1, prefix + message, auth_control="cr"))
-            self.assertFalse(CLIENTS.accepted(1, prefix + message, negative=True, auth_control="cr"))
+        direct = prefix + "403 API rate limit exceeded"
+        cached = prefix + ("403 API rate limit of 60 still exceeded until "
+                           "2026-10-24 20:40:46 +0000 UTC, not making remote request. [rate reset in 31m59s]")
+        self.assertTrue(CLIENTS.accepted(1, direct, auth_control="cr"))
+        self.assertFalse(CLIENTS.accepted(1, cached, auth_control="cr"))
+        self.assertFalse(CLIENTS.accepted(1, direct, negative=True, auth_control="cr"))
         for output in ["403 Forbidden", "API rate limit exceeded", prefix + "403 Forbidden",
                        prefix.replace("api.github.com", "unrelated.test") + "403 API rate limit exceeded"]:
             self.assertFalse(CLIENTS.accepted(1, output, auth_control="cr"))
@@ -131,18 +132,19 @@ class CandidateClientsTests(unittest.TestCase):
                 return 1, CLIENTS.ISSUER_ERRORS[0]
             if args[0] == "healthy":
                 return 1, ("Error: GET https://api.github.com/repos/helm/chart-releaser/releases/tags/v1.6.0: "
-                           "403 API rate limit of 60 still exceeded until "
-                           "2026-10-24 20:40:46 +0000 UTC, not making remote request. "
-                           "[rate reset in 31m59s]" + extra)
+                           "403 API rate limit " + variant + extra)
             return 0, "version"
-        for extra in ["", "\nError: TLS certificate has expired"]:
+        for variant, extra, passed in [
+                ("exceeded", "", True), ("exceeded", "\nError: TLS certificate has expired", False),
+                ("of 60 still exceeded until 2026-10-24 20:40:46 +0000 UTC, "
+                 "not making remote request. [rate reset in 31m59s]", "", False)]:
             with patch.object(CLIENTS, "prepare_chart_probe", return_value=True), \
                  patch.object(CLIENTS, "commands", return_value={"cr": (lambda host: ["bad"], ["healthy"])}), \
                  patch.object(CLIENTS, "execute", side_effect=execute), contextlib.redirect_stdout(io.StringIO()) as output:
-                self.assertEqual(CLIENTS.qualify("release", Path("/tmp")), not extra)
+                self.assertEqual(CLIENTS.qualify("release", Path("/tmp")), passed)
             result = json.loads(output.getvalue())
-            self.assertEqual(result["healthy_tls"], not extra)
-            self.assertEqual(result["passed"], not extra)
+            self.assertEqual(result["healthy_tls"], passed)
+            self.assertEqual(result["passed"], passed)
             self.assertFalse(result["healthy_operation_succeeded"])
             self.assertFalse(result["healthy_authenticated"])
 
@@ -169,8 +171,19 @@ class CandidateClientsTests(unittest.TestCase):
                 self.assertNotIn("--insecure", args)
                 self.assertNotIn("--push", args)
                 self.assertNotIn("--pr", args)
-                if name in ("certifi", "pip"):
-                    self.assertEqual(args[-2], name)
+                self.assertIn(name, CLIENTS.VERSION_COMMANDS)
+                if name == "certifi":
+                    self.assertEqual(args[-2], "certifi-request")
+                if name == "pip":
+                    self.assertEqual(args[:4], [sys.executable, "-m", "pip", "download"])
+                    for option in ("--no-cache-dir", "--no-deps", "--only-binary=:all:", "--disable-pip-version-check"):
+                        self.assertIn(option, args)
+                    self.assertEqual(args[args.index("--retries") + 1], "0")
+                    self.assertEqual(args[args.index("--timeout") + 1], "10")
+                    self.assertIn("pip==26.2.2", healthy)
+                    self.assertNotEqual(args[args.index("--dest") + 1], healthy[healthy.index("--dest") + 1])
+                if name == "helm":
+                    self.assertNotEqual(args[3], negative(CLIENTS.HOSTS[1])[3])
 
     def test_python_certifi(self):
         response = MagicMock()
@@ -179,23 +192,9 @@ class CandidateClientsTests(unittest.TestCase):
         with patch.dict(sys.modules, {"certifi": certifi}), \
              patch("ssl.create_default_context") as context, \
              patch("urllib.request.urlopen", return_value=response) as request:
-            self.assertEqual(CLIENTS.python_request("certifi", "https://healthy"), 200)
+            self.assertEqual(CLIENTS.certifi_request("https://healthy"), 200)
             context.assert_called_once_with(cafile="/test/certifi.pem")
             self.assertEqual(request.call_args.kwargs["timeout"], 30)
-
-    def test_python_pip(self):
-        response = MagicMock(status_code=200)
-        requests = MagicMock()
-        requests.get.return_value = response
-        vendor = types.ModuleType("pip._vendor")
-        vendor.requests = requests
-        with patch.dict(sys.modules, {"pip._vendor": vendor}):
-            self.assertEqual(CLIENTS.python_request("pip", "https://healthy"), 200)
-            requests.get.assert_called_once_with("https://healthy", timeout=30)
-            response.raise_for_status.assert_called_once()
-            response.raise_for_status.side_effect = RuntimeError("failed HTTP request")
-            with self.assertRaises(RuntimeError):
-                CLIENTS.python_request("pip", "https://healthy")
 
     def test_qualify_success_and_every_failure(self):
         for failed in [None, "version", "negative", "healthy"]:
@@ -277,13 +276,73 @@ class CandidateClientsTests(unittest.TestCase):
                         self.assertEqual(CLIENTS.smoke(profile, Path(directory)), code == 0)
                     args = execute.call_args.args[0]
                     self.assertEqual("--target" in args, profile == "wincross")
+                    if profile == "release":
+                        self.assertEqual(args[0], sys.executable)
                     if profile in ("rust", "wincross"):
                         self.assertIn("fn main", (Path(directory) / "main.rs").read_text())
 
+    def test_preflight_failure_aborts_before_clients(self):
+        with patch.object(CLIENTS.chains, "snapshot", return_value={"matches": False, "reason": "expired"}) as snapshot, \
+             patch.object(CLIENTS, "execute") as execute, contextlib.redirect_stdout(io.StringIO()) as output:
+            self.assertFalse(CLIENTS.qualify("release", Path("/tmp")))
+        self.assertEqual(snapshot.call_count, 1)
+        self.assertEqual(snapshot.call_args.kwargs["minimum_validity"], 60 * 86400)
+        execute.assert_not_called()
+        receipt = json.loads(output.getvalue())
+        self.assertEqual(receipt["setup"], "chain-preflight")
+        self.assertEqual(receipt["host"], CLIENTS.HOSTS[0])
+        self.assertFalse(receipt["passed"])
+
+    def test_setup_errors_are_structured_and_main_still_smokes(self):
+        for function, error in [("published_chains", ValueError("checksum")),
+                                ("published_chains", CLIENTS.zipfile.BadZipFile("bad")),
+                                ("published_chains", KeyError("chain")),
+                                ("pinned_peers", OSError("hosts"))]:
+            with patch.object(CLIENTS.chains, function, side_effect=error), \
+                 patch.object(CLIENTS, "smoke", return_value=True) as smoke, \
+                 contextlib.redirect_stdout(io.StringIO()) as output:
+                self.assertEqual(CLIENTS.main(["qualify", "node"]), 1)
+            self.assertEqual(json.loads(output.getvalue())["setup"], "qualification-inputs")
+            smoke.assert_called_once()
+
+    def test_deadline_and_remaining_subprocess_budget(self):
+        def setup(args, env, cwd, **kwargs):
+            self.assertEqual(kwargs["timeout"], 5)
+            return 0, "ok"
+        with patch.object(CLIENTS.time, "monotonic", side_effect=[0, CLIENTS.QUALIFICATION_TIMEOUT - 5, CLIENTS.QUALIFICATION_TIMEOUT - 3]), \
+             patch.object(CLIENTS, "commands", return_value={}), \
+             patch.object(CLIENTS, "execute", side_effect=setup):
+            self.assertTrue(CLIENTS.qualify("node", Path("/tmp")))
+        for elapsed in [CLIENTS.QUALIFICATION_TIMEOUT, CLIENTS.QUALIFICATION_TIMEOUT + 1]:
+            with patch.object(CLIENTS.time, "monotonic", side_effect=[0, elapsed]), \
+                 patch.object(CLIENTS, "execute") as execute, contextlib.redirect_stdout(io.StringIO()) as output:
+                self.assertFalse(CLIENTS.qualify("node", Path("/tmp")))
+            execute.assert_not_called()
+            self.assertEqual(json.loads(output.getvalue())["aborted"], "qualification-deadline")
+
+    def test_deadline_reached_during_last_command_is_structured(self):
+        with patch.object(CLIENTS.time, "monotonic", side_effect=[0, 1, CLIENTS.QUALIFICATION_TIMEOUT]), \
+             patch.object(CLIENTS, "execute", return_value=(None, "TimeoutExpired")) as execute, \
+             contextlib.redirect_stdout(io.StringIO()) as output:
+            self.assertFalse(CLIENTS.qualify("node", Path("/tmp")))
+        self.assertEqual(execute.call_count, 1)
+        self.assertEqual(json.loads(output.getvalue())["aborted"], "qualification-deadline")
+
+    def test_chain_drift_aborts_with_probe_receipt(self):
+        for before, after in [(False, True), (True, False)]:
+            snapshots = [{"matches": True}] * len(CLIENTS.HOSTS) + [{"matches": before}, {"matches": after}]
+            with patch.object(CLIENTS.chains, "snapshot", side_effect=snapshots), \
+                 patch.object(CLIENTS, "execute", return_value=(1, CLIENTS.ISSUER_ERRORS[0])), \
+                 contextlib.redirect_stdout(io.StringIO()) as output:
+                self.assertFalse(CLIENTS.qualify("wincross", Path("/tmp")))
+            receipt = json.loads(output.getvalue())
+            self.assertEqual(receipt["aborted"], "chain-drift")
+            self.assertEqual(receipt["probe"]["host"], CLIENTS.HOSTS[0])
+
     def test_main_modes_and_failure_exit(self):
         for status in [200, 404]:
-            with patch.object(CLIENTS, "python_request", return_value=status):
-                self.assertEqual(CLIENTS.main(["python-request", "pip", "https://healthy"]), int(status != 200))
+            with patch.object(CLIENTS, "certifi_request", return_value=status):
+                self.assertEqual(CLIENTS.main(["certifi-request", "https://healthy"]), int(status != 200))
         for clients, smoke in [(True, True), (True, False), (False, True), (False, False)]:
             with patch.object(CLIENTS, "qualify", return_value=clients), \
                  patch.object(CLIENTS, "smoke", return_value=smoke):

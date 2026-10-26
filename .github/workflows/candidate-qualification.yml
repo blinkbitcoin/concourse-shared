@@ -1,5 +1,8 @@
 name: Published candidate qualification
 'on':
+  schedule:
+    - cron: '43 7 * * 1'
+  workflow_dispatch: {}
   pull_request:
     paths:
       - '.github/workflows/candidate-qualification.yml'
@@ -7,6 +10,7 @@ name: Published candidate qualification
       - 'images/trust/**'
       - '.github/workflows/node-consumer-canary.yml'
       - 'tests/test_candidate*.py'
+      - 'tests/fixtures/candidate-*'
 permissions:
   contents: read
 jobs:
@@ -14,8 +18,22 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: python3 -m unittest discover -s tests -p 'test_candidate*.py' -v
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: python3 -m pip install -r qualification/requirements-test.txt
+      - name: Enforce qualification statement and branch coverage
+        run: |
+          python3 -m coverage run --branch --source=qualification -m unittest discover -s tests -p 'test_candidate*.py' -v
+          python3 -m coverage report --fail-under=100
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: qualification-coverage
+          path: .coverage
+          include-hidden-files: true
   candidate:
+    needs: contracts
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
