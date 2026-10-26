@@ -105,7 +105,9 @@ which uses pip's normal session and default trust-store selection. It downloads
 only wheels, without dependencies, caching, configuration files or installation.
 The healthy control downloads pinned `pip==26.2.2` from PyPI; negative controls
 use a separate destination and a nonexistent package on each affected index.
-The separate `certifi` client exercises the standalone bundle. See
+Pip receipts retain both streams: its skipped-index TLS diagnostic is on stdout,
+while the final package-resolution error is on stderr. A resolution error alone
+never qualifies. The separate `certifi` client exercises the standalone bundle. See
 [pip's certificate-store documentation](https://pip.pypa.io/en/stable/topics/https-certificates/).
 
 Both workflows rerun when the candidate matrix changes. A contract assertion

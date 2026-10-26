@@ -204,11 +204,11 @@ class CandidateClientsTests(unittest.TestCase):
                 if args[0] == "git":
                     return (1, "missing version") if failed == "version" else (0, "git version test")
                 if args[0] == "bad":
-                    self.assertTrue(kwargs["stderr_only"])
+                    self.assertEqual(kwargs["stderr_only"], args[1] == "git")
                     return (0, "accepted") if failed == "negative" else (1, CLIENTS.ISSUER_ERRORS[0])
                 return (1, "failure") if failed == "healthy" else (0, "healthy")
-            commands = {"git": (lambda host: ["bad", host], ["healthy"]),
-                        "pip": (lambda host: ["bad", host], ["healthy"])}
+            commands = {"git": (lambda host: ["bad", "git", host], ["healthy"]),
+                        "pip": (lambda host: ["bad", "pip", host], ["healthy"])}
             stream = io.StringIO()
             with patch.object(CLIENTS, "commands", return_value=commands), \
                  patch.object(CLIENTS, "execute", side_effect=execute), contextlib.redirect_stdout(stream):
@@ -218,6 +218,23 @@ class CandidateClientsTests(unittest.TestCase):
             self.assertEqual(len(rows[0]["negative"]), 12)
             self.assertFalse(rows[0]["healthy_authenticated"])
             self.assertEqual(rows[0]["healthy_operation_succeeded"], failed != "healthy")
+
+    def test_pip_stdout_certificate_error_and_stderr_resolution_failure(self):
+        stderr = ("ERROR: Could not find a version that satisfies the requirement candidate-probe==0 "
+                  "(from versions: none)\nERROR: No matching distribution found for candidate-probe==0\n")
+        prefix = "Could not fetch URL https://example.test/simple/candidate-probe/: "
+        issuer = "[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: unable to get local issuer certificate"
+        for stdout, passed in [(prefix + issuer + " - skipping\n", True), ("", False),
+                               (prefix + issuer + " certificate has expired", False),
+                               (prefix + "HTTP 403: " + issuer, False)]:
+            result = types.SimpleNamespace(returncode=1, stdout=stdout, stderr=stderr)
+            with patch.object(CLIENTS.subprocess, "run", return_value=result):
+                row = CLIENTS.negative_probe("pip", "example.test", ["python", "-m", "pip", "download"],
+                                             ["expected"], "127.0.0.1", {}, Path("/tmp"))
+            self.assertEqual(row["distrusted"], passed)
+            self.assertIn("No matching distribution", row["diagnostic"])
+            if passed:
+                self.assertIn("unable to get local issuer certificate", row["diagnostic"])
 
     def test_ghtoken_stdout_diagnostics(self):
         def execute(args, env, cwd, **kwargs):

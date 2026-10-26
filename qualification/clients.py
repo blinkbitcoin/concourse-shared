@@ -121,7 +121,9 @@ def negative_probe(client, host, command, expected, peer, env, home, run=None):
     before = chains.snapshot(host, peer, expected, run, env, home)
     code, output, after = None, "Unexpected or unavailable published chain", None
     if before["matches"]:
-        code, output = run(command, env, home, stderr_only=client != "ghtoken")
+        # pip logs skipped-index TLS errors to stdout, then resolution failure
+        # to stderr. It does not print the fetched index response body here.
+        code, output = run(command, env, home, stderr_only=client not in {"ghtoken", "pip"})
         after = chains.snapshot(host, peer, expected, run, env, home)
     distrusted = bool(before["matches"] and after["matches"] and
                       accepted(code, output, negative=True, auth_control=client))
