@@ -127,7 +127,9 @@ def negative_probe(client, host, command, expected, peer, env, home, run=None):
         after = chains.snapshot(host, peer, expected, run, env, home)
     distrusted = bool(before["matches"] and after["matches"] and
                       accepted(code, output, negative=True, auth_control=client))
-    return {"host": host, "exit": code, "diagnostic": output[-600:],
+    # Retain the exact classifier input: usage trailers can bury certificate
+    # errors, and filtering could hide a separate disqualifying diagnostic.
+    return {"host": host, "exit": code, "diagnostic": output,
             "chain_before": before, "chain_after": after, "distrusted": distrusted}
 
 

@@ -148,6 +148,25 @@ class CandidateClientsTests(unittest.TestCase):
             self.assertFalse(result["healthy_operation_succeeded"])
             self.assertFalse(result["healthy_authenticated"])
 
+    def test_chart_negative_receipt_retains_full_classification_input(self):
+        issuer = "Error: Get https://example.test/: tls: failed to verify certificate: x509: certificate signed by unknown authority\n"
+        usage = "Usage:\n  cr index [flags]\n" + "      --config string   Configuration file\n" * 40
+        for rejected in ("", "Error: certificate has expired\n", "Error: HTTP 403\n"):
+            diagnostic = issuer + usage + rejected + usage
+            def execute(args, env, cwd, **kwargs):
+                return (1, diagnostic) if args[0] == "negative" else (0, "ok")
+            with patch.object(CLIENTS, "prepare_chart_probe", return_value=True), \
+                 patch.object(CLIENTS, "commands", return_value={"cr": (lambda host: ["negative"], ["healthy"])}), \
+                 patch.object(CLIENTS, "execute", side_effect=execute), contextlib.redirect_stdout(io.StringIO()) as output:
+                self.assertEqual(CLIENTS.qualify("release", Path("/tmp")), not rejected)
+            receipt = json.loads(output.getvalue())
+            self.assertEqual(len(receipt["negative"]), 12)
+            for probe in receipt["negative"]:
+                self.assertEqual(probe["diagnostic"], diagnostic)
+                self.assertEqual(probe["distrusted"], not rejected)
+                self.assertEqual(CLIENTS.accepted(probe["exit"], probe["diagnostic"],
+                                                 negative=True, auth_control="cr"), probe["distrusted"])
+
     def test_unexpected_chain_before_or_after_cannot_qualify(self):
         for before, after in [(False, True), (True, False), (True, True)]:
             with patch.object(CLIENTS.chains, "snapshot", side_effect=[{"matches": before}, {"matches": after}]), \

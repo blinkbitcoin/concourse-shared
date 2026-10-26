@@ -45,7 +45,10 @@ a failed preflight does not run the client. Each snapshot also verifies signatur
 links, current validity, server purpose and hostname with OpenSSL, trusting only
 the final observed certificate for that separate integrity control. Expired or
 not-yet-valid chains cannot qualify through Git/GnuTLS's generic error text.
-Receipts retain both observations and the validity result.
+Receipts retain both observations, the validity result and the complete negative
+client diagnostic used for classification. Diagnostics are not truncated or
+filtered: lengthy usage output must not hide the certificate error or a separate
+disqualifying error, and an auditor can replay the classifier on the saved input.
 This is independent per-attempt chain identity evidence, not an interception of
 the client's own TLS session. It cannot rule out a server deliberately serving
 different chains selectively to different clients. No trust store is changed.
