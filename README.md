@@ -74,3 +74,41 @@ Files whose names don't start with them are treated as common and synced to all.
 
 - Concourse CI:
   - Open Charts PR
+
+### GitHub webhooks
+
+Git resources rendered with `webhook = True` accept check webhooks
+(`webhook_token: ((webhook.secret))`). `ci/github-webhooks.py` creates the
+matching GitHub push hooks from the live pipelines of one fly target. It only
+manages hooks for that target's team; hooks of other teams are never touched.
+
+Prerequisites: `fly login -t ciblink`, `gh auth refresh -h github.com -s admin:repo_hook`,
+admin permission on the target repositories, and read access to the team's
+`webhook` credential in Vault.
+
+1. Review the plan. It is read-only and needs no token:
+
+   ```sh
+   ci/github-webhooks.py plan -t ciblink --prune --prune-host https://ci.blink.sv --prune-host https://ci.galoy.io
+   ```
+
+   `BLOCKED` lines list archived repositories, missing admin permission and
+   repositories that would exceed GitHub's limit of 20 hooks.
+2. Apply. The token is only sent to GitHub over stdin and is redacted from
+   output. The script checks it against Concourse, prints the plan again and
+   asks you to type `apply`:
+
+   ```sh
+   CONCOURSE_WEBHOOK_TOKEN="$(vault read -field=secret concourse/dev/webhook)" \
+     ci/github-webhooks.py apply -t ciblink --prune --prune-host https://ci.blink.sv --prune-host https://ci.galoy.io
+   ```
+
+   Omit `--prune`/`--prune-host` to only create and repair hooks.
+3. Verify. GitHub sends a ping to every new hook; each must report a 2xx
+   delivery:
+
+   ```sh
+   ci/github-webhooks.py verify -t ciblink
+   ```
+
+Run `plan` again afterwards; it must report `0 change(s)`.
