@@ -253,6 +253,7 @@ resources:
 - name: shared-files
   type: git
   webhook_token: ((webhook.secret))
+  check_every: 1h
   source:
     paths:
     - shared/**/*
