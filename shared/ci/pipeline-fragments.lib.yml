@@ -466,6 +466,8 @@ source:
   private_key: #@ data.values.github_private_key
 #@ if webhook:
 webhook_token: ((webhook.secret))
+#! GitHub webhooks trigger checks; slow polling only recovers missed deliveries.
+check_every: 1h
 #@ end
 #@ end
 
@@ -479,6 +481,8 @@ source:
   private_key: #@ data.values.github_private_key
 #@ if webhook:
 webhook_token: ((webhook.secret))
+#! GitHub webhooks trigger checks; slow polling only recovers missed deliveries.
+check_every: 1h
 #@ end
 #@ end
 
@@ -508,6 +512,8 @@ source:
   private_key: #@ data.values.github_private_key
 #@ if webhook:
 webhook_token: ((webhook.secret))
+#! GitHub webhooks trigger checks; slow polling only recovers missed deliveries.
+check_every: 1h
 #@ end
 #@ end
 
