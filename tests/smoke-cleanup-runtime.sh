@@ -2,10 +2,12 @@
 # End-to-end smoke test of the orphan cleanup runbook in the exact pinned
 # Kaniko task image (read from ci/pipeline.yml). Requires Docker on Linux x86-64.
 #
-# The container's PID 1 is a BusyBox shell standing in for the task supervisor:
-# it starts a real /kaniko/executor build whose RUN step sleeps, then launches
-# the helper as its own child, as a Concourse intercept does. Staging uses the
-# documented script, stdin stream and expected digest.
+# The process layout matches a Concourse task container: PID 1 is an idle init
+# (Concourse runs gdn-init), and both the task's /kaniko/executor and every
+# intercept are exec'd into the container from outside its PID namespace, so
+# their parent PID reads as 0. A real build blocks in a RUN step; staging and
+# cleanup then run as separate execs with the documented script, stdin stream,
+# expected digest and helper invocation.
 set -euo pipefail
 
 root=$(cd "$(dirname "$0")/.." && pwd)
@@ -47,22 +49,19 @@ mkdir "$work/context"
 printf 'FROM python@sha256:18d373e126e39c29c6d38e71e2f19ca66636568318fc95c7849c462b7f9d3d64\nRUN sleep 300\n' \
   > "$work/context/Dockerfile"
 
-container=$(docker run -d --platform linux/amd64 --entrypoint /busybox/sh \
-  -v "$work/context:/workspace/context:ro" -w /workspace "$image" -c '
-    # Kaniko wipes everything except /kaniko and mounts before unpacking the
-    # base image, so keep all smoke state under /kaniko.
-    /busybox/mkdir -p /kaniko/smoke
-    /kaniko/executor --dockerfile=context/Dockerfile --context=context \
-      --use-new-run --single-snapshot --cache=false --no-push \
-      --tar-path=/kaniko/smoke/image.tar --digest-file=/kaniko/smoke/digest > /kaniko/smoke/kaniko.log 2>&1 &
-    while [ ! -e /kaniko/smoke/go ]; do /busybox/sleep 1; done
-    /busybox/sleep 2  # let the exec that wrote the marker exit first
-    set +e
-    '"$runtime"' -I -c "$(/busybox/cat /kaniko/smoke/helper.py)" --apply $(/busybox/cat /kaniko/smoke/args) 2>&1
-    echo "SMOKE-RC=$?"
-    exec /busybox/sleep 600')
+# PID 1 stands in for gdn-init: it starts nothing and is never a target.
+container=$(docker run -d --platform linux/amd64 --entrypoint /busybox/sleep \
+  -v "$work/context:/workspace/context:ro" -w /workspace "$image" 3600)
 
 in_container() { docker exec -i "$container" "$@"; }
+
+# Like the Concourse task, exec the executor directly (parent 0). Kaniko wipes
+# everything except /kaniko, /busybox and mounts before unpacking the base
+# image, so the output paths live under /kaniko.
+docker exec -d -w /workspace "$container" /kaniko/executor \
+  --dockerfile=context/Dockerfile --context=context \
+  --use-new-run --single-snapshot --cache=false --no-push \
+  --tar-path=/kaniko/smoke-image.tar --digest-file=/kaniko/smoke-digest
 
 echo "Negative: a wrong digest must fail and leave nothing staged"
 wrong=$(printf '%064d' 0)
@@ -96,7 +95,6 @@ sys.exit(0 if any(p.read_bytes() == b"sleep\x00300\x00" for p in pathlib.Path("/
   sleep 2
 done
 if [ -z "${running:-}" ]; then
-  docker exec "$container" /busybox/cat /kaniko/smoke/kaniko.log >&2 || true
   echo "Kaniko RUN step did not start" >&2
   exit 1
 fi
@@ -113,43 +111,41 @@ for entry in pathlib.Path("/proc").iterdir():
         continue
     if command.split(b"\0")[0] == b"/kaniko/executor":
         raw = (entry / "stat").read_text()
-        start = raw[raw.rfind(")") + 2:].split()[19]
-        print(entry.name, start, hashlib.sha256(command).hexdigest(), os.readlink(entry / "cwd"))
+        fields = raw[raw.rfind(")") + 2:].split()
+        # Production layout: the task process is an exec, so its parent is 0.
+        assert fields[1] == "0", f"executor parent is {fields[1]}, not 0"
+        print(entry.name, fields[19], hashlib.sha256(command).hexdigest(), os.readlink(entry / "cwd"))
 ')
-read -r pid _ _ _ <<< "$args"
-[ -n "${pid:-}" ] || { docker exec "$container" /busybox/cat /kaniko/smoke/kaniko.log >&2; echo "executor not found" >&2; exit 1; }
-in_container /busybox/sh -c 'test -e /proc/'"$pid"
+read -r pid start command_sha256 cwd <<< "$args"
+[ -n "${pid:-}" ] || { echo "executor not found" >&2; exit 1; }
 echo "Executor identity: $args"
 
-printf '%s\n' "$helper" | in_container /busybox/sh -c '/busybox/cat > /kaniko/smoke/helper.py'
-printf '%s\n' "$args" | in_container /busybox/sh -c '/busybox/cat > /kaniko/smoke/args && /busybox/touch /kaniko/smoke/go'
-
-# Never exec into the container while the helper runs: it would be an
-# unrelated live process and make the helper fail closed.
-for _ in $(seq 1 90); do
-  if docker logs "$container" 2>&1 | grep -q '^SMOKE-RC='; then break; fi
-  sleep 1
-done
-result=$(docker logs "$container" 2>&1)
+# The documented invocation: the helper's exact source as -c in its own exec,
+# with no other exec running concurrently.
+set +e
+result=$(in_container "$runtime" -I -c "$helper" --apply "$pid" "$start" "$command_sha256" "$cwd" 2>&1)
+rc=$?
+set -e
 echo "$result"
+[ "$rc" = 0 ] || { echo "helper failed with exit code $rc" >&2; exit 1; }
 python3 -c '
 import json, sys
-lines = sys.argv[1].strip().splitlines()
-assert "SMOKE-RC=0" in lines, "helper failed or did not finish"
-receipt = json.loads(lines[lines.index("SMOKE-RC=0") - 1])
+receipt = json.loads(sys.argv[1].strip().splitlines()[-1])
 assert receipt["stopped_processes"] >= 2, receipt
 print("receipt", receipt)
 ' "$result"
 
-echo "Verify: no live process remains outside the supervisor"
+echo "Verify: no live process remains except PID 1 and this check"
 in_container "$runtime" -I -c '
 import os, pathlib, sys
 live = []
 for entry in pathlib.Path("/proc").iterdir():
     if entry.name.isdigit() and int(entry.name) not in (1, os.getpid()):
-        raw = (entry / "stat").read_text()
-        fields = raw[raw.rfind(")") + 2:].split()
-        if fields[0] != "Z" and int(fields[1]) != 0:
+        try:
+            raw = (entry / "stat").read_text()
+        except FileNotFoundError:
+            continue
+        if raw[raw.rfind(")") + 2:].split()[0] != "Z":
             live.append((entry.name, (entry / "cmdline").read_bytes()))
 sys.exit(f"live processes remain: {live}" if live else 0)
 '

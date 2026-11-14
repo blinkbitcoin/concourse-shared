@@ -19,9 +19,11 @@ container, modify image contents, publish an image, or restart a build.
    start time (stat field 22), SHA256 of the exact NUL-separated cmdline bytes,
    and working directory. Confirm `/kaniko/executor` and the expected source
    context, Dockerfile, no-push, archive and digest arguments. Record process
-   ancestry and refuse unrelated or ambiguous workloads.
-4. Recheck the external build/container identity immediately before cleanup.
-   Keep other candidate jobs paused. Stop if the container or source changed.
+   ancestry and refuse unrelated or ambiguous workloads. In a Concourse task
+   container PID 1 is the runtime init (`gdn-init`), and the task process and
+   every intercept are exec'd from outside the container, so their parent PID
+   reads as 0.
+4. Keep other candidate jobs paused until verification below is complete.
 
 ## Stage the cleanup runtime
 
@@ -36,17 +38,20 @@ a reproducible plain tar first.
 
 1. On a trusted operator machine with `zstd`, download `upstream_url`, then run
    [`build-cleanup-runtime.py`](build-cleanup-runtime.py) on it. The script
-   verifies `upstream_sha256`, keeps only the interpreter and standard library
-   (without `test/` and `config-*/`), writes fixed metadata, and refuses any
-   output that does not match `runtime_sha256`.
+   verifies `upstream_sha256`, keeps only the interpreter and `lib/python3.13`
+   (the standard library plus its bundled `site-packages/pip`, inert under
+   `-I`; without `test/` and `config-*/`), writes fixed metadata, and refuses
+   any output that does not match `runtime_sha256`.
 2. Stream that tar into the retained container with the reviewed
    [`stage-cleanup-runtime.sh`](stage-cleanup-runtime.sh), passing its exact
    bytes to the image's BusyBox shell. The script verifies `runtime_sha256`
    again inside the container with BusyBox `sha256sum`, unpacks to
    `/kaniko/orphan-cleanup-runtime`, and checks the interpreter version and
-   pidfd support. On any failure it removes the partial runtime. It refuses
-   to overwrite an existing runtime. `/kaniko` is excluded from Kaniko
-   snapshots, so staging there cannot change image layers.
+   pidfd support. If the script fails or its session is hung up, interrupted
+   or terminated, it removes the partial runtime; after a SIGKILL a leftover
+   directory remains and restaging refuses until an operator inspects and
+   removes it. It refuses to overwrite an existing runtime. `/kaniko` is
+   excluded from Kaniko snapshots, so staging there cannot change image layers.
 
 ```python
 runtime = json.loads(Path("ci/ops/cleanup-runtime.json").read_text())
@@ -59,11 +64,19 @@ with open(built_runtime_tar, "rb") as archive:
 ```
 
 Staging must finish before cleanup starts: any concurrent intercept is an
-unrelated live process, and the helper fails closed on it. The
+unrelated live process, and the helper fails closed on it. The digest check is
+point in time: the orphaned build still runs as root in the same container and
+could modify the staged files afterwards. Run cleanup immediately after staging
+and rely on the independent verification below, not on the helper receipt
+alone. The
 [smoke test](../../tests/smoke-cleanup-runtime.sh) runs this staging and the
 cleanup below against a real orphaned Kaniko build in the exact pinned image.
 
 ## Cleanup
+
+Immediately before running the helper, recheck the external build and container
+identity (precondition 2) and the recorded Kaniko PID, start time, cmdline hash
+and working directory (precondition 3). Stop if anything changed.
 
 Use the reviewed helper's exact source bytes as Python's `-c` argument (or a
 verified identical staged copy). Do not interpolate process data into code.
@@ -80,13 +93,13 @@ subprocess.run([
 
 The helper first verifies that the retained task container has no unrelated live
 workload, then pins and freezes the root with a Linux pidfd before its final
-command and working-directory check. It protects only the helper/supervisor
-ancestry and freezes every other live process in the dedicated container, so a
-descendant cannot leave scope merely by reparenting. It refuses self/init targets,
-PID reuse or more than 4096 processes. It sends TERM and CONT only through pinned
-descriptors, waits 10 seconds, and sends KILL to survivors. It trusts only PID 1
-as the shared supervisor boundary and rejects a target sharing any other ancestor
-with the helper. It then reconciles the complete container process inventory until
+command and working-directory check. It protects only PID 1 (the container
+init) and the helper's own ancestry, and freezes every other live process in the
+dedicated container, so a descendant cannot leave scope merely by reparenting.
+PID 1 is never a target, even when it is Kaniko's parent. It refuses self/init
+targets, PID reuse or more than 4096 processes. It sends TERM and CONT only
+through pinned descriptors, waits 10 seconds, and sends KILL to survivors. It
+rejects a target sharing any ancestor other than PID 1 with the helper. It then reconciles the complete container process inventory until
 two scans are clean. Any late process makes cleanup fail closed; the helper does
 not signal it because it cannot distinguish a workload fork from a concurrent
 administrative exec. On preflight failure it attempts to resume every process it
@@ -101,8 +114,8 @@ identity evidence and receipt in protected operator storage.
 ## Verification and retry
 
 Independently enumerate the complete `/proc` process inventory in the **same
-terminal container** and require that no live process remains outside the known
-container supervisor ancestry. Do not rely on command names or descendants of the
+terminal container** and require that no live process remains other than PID 1
+and the checking process itself. Do not rely on command names or descendants of the
 original Kaniko PID: a late fork can change both its name and parent. Zombies are
 exited processes, not active compilation. Recheck that no publication occurred
 and that no newer build is active. Only then unpause and trigger at most one clean

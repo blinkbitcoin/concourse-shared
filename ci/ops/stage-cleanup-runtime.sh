@@ -27,6 +27,10 @@ fi
 umask 077
 mkdir "$dir"
 trap 'rm -rf "$dir"' EXIT
+# A dropped intercept session signals the shell; exit so the EXIT trap still
+# removes the partial runtime. SIGKILL cannot be trapped: a leftover directory
+# then makes restaging refuse until an operator removes it.
+trap 'exit 1' HUP INT TERM
 cat > "$dir/runtime.tar"
 echo "$expected  $dir/runtime.tar" | sha256sum -c - > /dev/null
 tar -xf "$dir/runtime.tar" -C "$dir"
@@ -37,4 +41,4 @@ assert sys.version_info >= (3, 11), sys.version
 assert hasattr(os, "pidfd_open") and hasattr(signal, "pidfd_send_signal"), "no pidfd support"
 print("staged Python", sys.version.split()[0])
 '
-trap - EXIT
+trap - EXIT HUP INT TERM

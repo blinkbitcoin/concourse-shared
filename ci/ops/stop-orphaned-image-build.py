@@ -101,11 +101,15 @@ def cleanup(pid, start, command_hash, cwd):
         if shared_ancestors:
             raise RuntimeError("target shares an untrusted supervisor with helper")
         # A wrapper above Kaniko belongs to the workload unless it is also in
-        # the explicit PID 1 supervisor boundary.
-        tree.update(root_ancestors - helper_ancestors)
+        # the helper's ancestry. PID 1 is the container init (Concourse's
+        # gdn-init): it is never a target, even when Kaniko is its child.
+        tree.update(root_ancestors - helper_ancestors - {1})
         if len(tree) > 4096:
             raise RuntimeError("unsafe process tree")
-        protected_pids = helper_ancestors - tree
+        # Task and intercept processes are exec'd into the container from
+        # outside its PID namespace (parent 0), so the init is not one of the
+        # helper's ancestors in production; protect it explicitly.
+        protected_pids = (helper_ancestors | ({1} & records.keys())) - tree
         unrelated = {
             current for current, record in records.items()
             if record["state"] != "Z" and current not in tree and current not in protected_pids

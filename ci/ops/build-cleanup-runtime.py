@@ -97,6 +97,7 @@ def build(upstream, output, pin=None):
     if zstd.returncode != 0:
         raise RuntimeError("zstd failed to decompress the upstream archive")
     if sha256(output) != pin["runtime_sha256"]:
+        Path(output).unlink()  # Never leave an unverified runtime behind.
         raise RuntimeError("repacked runtime does not match runtime_sha256")
     return pin["runtime_sha256"]
 

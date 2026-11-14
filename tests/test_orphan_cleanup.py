@@ -168,6 +168,42 @@ class CleanupTests(unittest.TestCase):
         self.open.assert_any_call(6)
         self.send.assert_any_call(106, signal.SIGTERM)
 
+    def test_concourse_exec_layout_protects_init_only(self):
+        # Production: PID 1 is gdn-init; the task's Kaniko and the intercepted
+        # helper are both exec'd from outside the PID namespace (parent 0).
+        init = {'pid':1, 'parent':0, 'start':10, 'state':'S'}
+        shell = {'pid':98, 'parent':0, 'start':290, 'state':'S'}
+        for helper_parent in (0, 98):
+            helper = {'pid':99, 'parent':helper_parent, 'start':300, 'state':'S'}
+            records = {1:init, 7:ROOT, 8:CHILD, 99:helper}
+            if helper_parent:
+                records[98] = shell
+            self.snap.return_value = records
+            self.proc.side_effect = lambda p: records[p]
+            self.open.reset_mock()
+            self.send.reset_mock()
+            self.run_cleanup()
+            self.assertEqual(sorted(c.args[0] for c in self.open.call_args_list), [7, 8])
+            self.assertFalse(any(c.args[0] in (101, 198, 199) for c in self.send.call_args_list))
+
+    def test_init_parent_of_kaniko_is_never_a_target(self):
+        init = {'pid':1, 'parent':0, 'start':10, 'state':'S'}
+        helper = {'pid':99, 'parent':0, 'start':300, 'state':'S'}
+        records = {1:init, 7:{**ROOT, 'parent':1}, 8:CHILD, 99:helper}
+        self.snap.return_value = records
+        self.proc.side_effect = lambda p: records[p]
+        self.run_cleanup()
+        self.assertNotIn(call(1), self.open.call_args_list)
+        self.assertFalse(any(c.args[0] == 101 for c in self.send.call_args_list))
+
+    def test_late_process_under_init_fails_closed(self):
+        init = {'pid':1, 'parent':0, 'start':10, 'state':'S'}
+        reparented = {'pid':9, 'parent':1, 'start':900, 'state':'S'}
+        self.snap.return_value = {1:init, 7:ROOT, 8:CHILD, 9:reparented}
+        with self.assertRaisesRegex(RuntimeError, 'unrelated'):
+            self.run_cleanup()
+        self.open.assert_not_called()
+
     def test_first_term_failure_thaws_all_frozen_processes(self):
         running_root = {**ROOT, 'state':'S'}
         running_child = {**CHILD, 'state':'S'}
@@ -452,6 +488,7 @@ class BuildCleanupRuntimeTests(unittest.TestCase):
                 self.assertEqual(build_mod.build(upstream, output, pin), expected)
                 with self.assertRaisesRegex(RuntimeError, 'runtime_sha256'):
                     build_mod.build(upstream, output, dict(pin, runtime_sha256='0' * 64))
+                self.assertFalse(output.exists())
                 fake_zstd.returncode = 1
                 with self.assertRaisesRegex(RuntimeError, 'zstd failed'):
                     build_mod.build(upstream, output, pin)
@@ -503,11 +540,12 @@ class LinuxProcessIntegrationTests(unittest.TestCase):
                         selected.add(int(value))
                 result = {pid: dict(record) for pid, record in records.items()
                           if pid in selected}
-                # Model the retained container's explicit PID 1 supervisor
-                # boundary instead of the test runner's real parent/child tree.
+                # Model a Concourse task container: PID 1 is the init, and
+                # both Kaniko and the intercepted helper are exec'd from
+                # outside the PID namespace, so their parent reads as 0.
                 for pid in (os.getpid(), root):
                     if pid in result:
-                        result[pid]['parent'] = 1
+                        result[pid]['parent'] = 0
                 return result
 
             try:
