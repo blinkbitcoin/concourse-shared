@@ -11,11 +11,13 @@ request. Repeat verification after tool installation. Timeouts, DNS failures,
 expired certificates, and hostname mismatches do not pass the gate. The public
 fixture service must be available when building; an outage blocks a build.
 
-Node uses its own verifier: pin Node 24.22.1 and check it independently, including
+Node uses its own verifier: pin Node 24.22.3 and check it independently, including
 a healthy npm request. The Rust base includes rustup 1.29.2; check its actual
 update client against all twelve fixtures and its normal update servers. Move
 the release image from Python 3.8/Buster to Python 3.11/Bookworm and update both
-pip's bundled roots and standalone certifi. Configure gcloud's
+pip's bundled roots and standalone certifi, and assert that neither bundle still
+contains the removed eMudhra roots (emSign Root CA - C1/G3, emSign ECC Root CA -
+C3/G3). Configure gcloud's
 `core/custom_ca_certs_file` to use the qualified system bundle.
 
 These checks cover the declared verifiers, not every binary's embedded trust
@@ -81,7 +83,7 @@ performed by the local commands above.
 ## References
 
 - https://emudhra.we-have-a-problem.com/
-- https://nodejs.org/en/blog/release/v24.22.1
+- https://nodejs.org/en/blog/release/v24.22.3
 - https://github.com/nodejs/node/pull/66871
 - https://docs.cloud.google.com/sdk/gcloud/reference/config
 

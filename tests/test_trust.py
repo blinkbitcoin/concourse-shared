@@ -216,9 +216,17 @@ class TrustTests(unittest.TestCase):
                 self.failure = (lambda a: f"RUSTUP_DIST_SERVER=https://{host}" in a, status, error)
                 with self.assertRaisesRegex(RuntimeError, "Rustup inconclusive"):
                     trust.qualify(rustup=True)
-        self.failure = (lambda a: a[0] == "/usr/bin/env" and not any(v.startswith("RUSTUP_DIST_SERVER=") for v in a), 1, "download failure")
-        with self.assertRaisesRegex(RuntimeError, "env failed"):
-            trust.qualify(rustup=True)
+        healthy = lambda a: a[0] == "/usr/bin/env" and not any(v.startswith("RUSTUP_DIST_SERVER=") for v in a)
+        for status in (1, 2, 101):
+            self.failure = (healthy, status, "download failure")
+            with self.assertRaisesRegex(RuntimeError, "Rustup healthy update check failed"):
+                trust.qualify(rustup=True)
+
+    def test_rustup_healthy_check_accepts_available_updates(self):
+        # rustup check exits 100 when a newer toolchain exists; TLS still succeeded.
+        self.failure = (lambda a: a[0] == "/usr/bin/env" and not any(v.startswith("RUSTUP_DIST_SERVER=") for v in a),
+                        100, "")
+        trust.qualify(rustup=True)
 
     def test_entrypoint_help_never_runs_commands(self):
         with patch.object(sys, "argv", [str(SCRIPT), "--help"]):

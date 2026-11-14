@@ -144,7 +144,10 @@ def qualify(refresh=False, node=False, rustup=False):
                          f"RUSTUP_UPDATE_ROOT=https://{host}", *command)
             if result.returncode != 1 or "CertDistrusted" not in result.stderr:
                 raise RuntimeError(f"Rustup inconclusive or accepted chain: {host}")
-        require(*environment, *command)
+        # rustup >= 1.29 exits 0 when current and 100 when updates exist; both
+        # mean the real update servers were reached over verified TLS.
+        if run(*environment, *command).returncode not in (0, 100):
+            raise RuntimeError("Rustup healthy update check failed; image build remains blocked")
         print("Rustup verifier qualified: rejected=12, healthy=pass")
 
 
