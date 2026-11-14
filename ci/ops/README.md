@@ -48,7 +48,8 @@ a reproducible plain tar first.
    again inside the container with BusyBox `sha256sum`, unpacks to
    `/kaniko/orphan-cleanup-runtime`, and checks the interpreter version and
    pidfd support. If the script fails or its session is hung up, interrupted
-   or terminated, it removes the partial runtime; after a SIGKILL a leftover
+   or terminated, it removes the partial runtime (once the current step, such
+   as reading stdin, returns); after a SIGKILL a leftover
    directory remains and restaging refuses until an operator inspects and
    removes it. It refuses to overwrite an existing runtime. `/kaniko` is
    excluded from Kaniko snapshots, so staging there cannot change image layers.
@@ -99,8 +100,8 @@ dedicated container, so a descendant cannot leave scope merely by reparenting.
 PID 1 is never a target, even when it is Kaniko's parent. It refuses self/init
 targets, PID reuse or more than 4096 processes. It sends TERM and CONT only
 through pinned descriptors, waits 10 seconds, and sends KILL to survivors. It
-rejects a target sharing any ancestor other than PID 1 with the helper. It then reconciles the complete container process inventory until
-two scans are clean. Any late process makes cleanup fail closed; the helper does
+rejects a target sharing any ancestor other than PID 1 with the helper. It then
+reconciles the complete container process inventory until two scans are clean. Any late process makes cleanup fail closed; the helper does
 not signal it because it cannot distinguish a workload fork from a concurrent
 administrative exec. On preflight failure it attempts to resume every process it
 stopped; after TERM delivery starts or becomes uncertain it never resumes a
@@ -115,7 +116,8 @@ identity evidence and receipt in protected operator storage.
 
 Independently enumerate the complete `/proc` process inventory in the **same
 terminal container** and require that no live process remains other than PID 1
-and the checking process itself. Do not rely on command names or descendants of the
+and the checking intercept's own processes (for example its shell and the
+inventory command). Do not rely on command names or descendants of the
 original Kaniko PID: a late fork can change both its name and parent. Zombies are
 exited processes, not active compilation. Recheck that no publication occurred
 and that no newer build is active. Only then unpause and trigger at most one clean

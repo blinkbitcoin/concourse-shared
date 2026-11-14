@@ -143,10 +143,10 @@ for entry in pathlib.Path("/proc").iterdir():
     if entry.name.isdigit() and int(entry.name) not in (1, os.getpid()):
         try:
             raw = (entry / "stat").read_text()
+            if raw[raw.rfind(")") + 2:].split()[0] != "Z":
+                live.append((entry.name, (entry / "cmdline").read_bytes()))
         except FileNotFoundError:
-            continue
-        if raw[raw.rfind(")") + 2:].split()[0] != "Z":
-            live.append((entry.name, (entry / "cmdline").read_bytes()))
+            continue  # Exited during the scan.
 sys.exit(f"live processes remain: {live}" if live else 0)
 '
 echo "Orphan cleanup smoke test passed"
