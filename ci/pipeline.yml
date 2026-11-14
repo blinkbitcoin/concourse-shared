@@ -183,11 +183,14 @@ jobs:
 
 
 #@ for repo in enabled_repos():
+#! serial: an older shared revision must never force-push over a newer one.
+#! Scripts run from the triggering shared-files checkout so content and
+#! generator always come from the same concourse-shared commit.
 - name: #@ "bump-shared-files-in-" + repo
+  serial: true
   plan:
   - in_parallel:
     - { get: shared-files, trigger: true }
-    - { get: pipeline-tasks }
     - get: #@ repo_resource_name(repo)
   - task: #@ "bump-shared-files-" + repo
     config:
@@ -196,7 +199,6 @@ jobs:
       inputs:
       - name: shared-files
         path: repo
-      - name: pipeline-tasks
       - name: #@ repo_resource_name(repo)
         path: source-repo
       outputs:
@@ -204,17 +206,19 @@ jobs:
       params:
         FEATURES: #@ data.values.src_repos[repo]
       run:
-        path: pipeline-tasks/ci/tasks/bump-shared-files.sh
+        path: repo/ci/tasks/bump-shared-files.sh
   - put: #@ repo_pr_branch_resource_name(repo)
     params:
       repository: source-repo
       force: true
   - task: open-source-pr
+    attempts: 3
     config:
       platform: linux
       image_resource: #@ task_image_config()
       inputs:
-      - name: pipeline-tasks
+      - name: shared-files
+        path: repo
       - name: #@ repo_resource_name(repo)
         path: source-repo
       params:
@@ -223,7 +227,7 @@ jobs:
         GH_APP_ID: #@ data.values.github_app_id
         GH_APP_PRIVATE_KEY: #@ data.values.github_app_private_key
       run:
-        path: pipeline-tasks/ci/tasks/open-pr.sh
+        path: repo/ci/tasks/open-pr.sh
 #@ end
 
 - name: backup-org-to-gcp

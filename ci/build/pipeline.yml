@@ -475,11 +475,11 @@ jobs:
         - wincross-pipeline-image/digest
         - previous/digest.json
 - name: bump-shared-files-in-mavapay-client
+  serial: true
   plan:
   - in_parallel:
     - get: shared-files
       trigger: true
-    - get: pipeline-tasks
     - get: mavapay-client-repo
   - task: bump-shared-files-mavapay-client
     config:
@@ -493,7 +493,6 @@ jobs:
       inputs:
       - name: shared-files
         path: repo
-      - name: pipeline-tasks
       - name: mavapay-client-repo
         path: source-repo
       outputs:
@@ -502,12 +501,13 @@ jobs:
         FEATURES:
         - nodejs
       run:
-        path: pipeline-tasks/ci/tasks/bump-shared-files.sh
+        path: repo/ci/tasks/bump-shared-files.sh
   - put: mavapay-client-pr-branch
     params:
       repository: source-repo
       force: true
   - task: open-source-pr
+    attempts: 3
     config:
       platform: linux
       image_resource:
@@ -517,7 +517,8 @@ jobs:
           password: ((docker-creds.password))
           repository: us.gcr.io/galoy-org/galoy-deployments-pipeline
       inputs:
-      - name: pipeline-tasks
+      - name: shared-files
+        path: repo
       - name: mavapay-client-repo
         path: source-repo
       params:
@@ -526,13 +527,13 @@ jobs:
         GH_APP_ID: ((github-blinkbitcoin.github_app_id))
         GH_APP_PRIVATE_KEY: ((github-blinkbitcoin.github_app_private_key))
       run:
-        path: pipeline-tasks/ci/tasks/open-pr.sh
+        path: repo/ci/tasks/open-pr.sh
 - name: bump-shared-files-in-blink-client
+  serial: true
   plan:
   - in_parallel:
     - get: shared-files
       trigger: true
-    - get: pipeline-tasks
     - get: blink-client-repo
   - task: bump-shared-files-blink-client
     config:
@@ -546,7 +547,6 @@ jobs:
       inputs:
       - name: shared-files
         path: repo
-      - name: pipeline-tasks
       - name: blink-client-repo
         path: source-repo
       outputs:
@@ -555,12 +555,13 @@ jobs:
         FEATURES:
         - nodejs
       run:
-        path: pipeline-tasks/ci/tasks/bump-shared-files.sh
+        path: repo/ci/tasks/bump-shared-files.sh
   - put: blink-client-pr-branch
     params:
       repository: source-repo
       force: true
   - task: open-source-pr
+    attempts: 3
     config:
       platform: linux
       image_resource:
@@ -570,7 +571,8 @@ jobs:
           password: ((docker-creds.password))
           repository: us.gcr.io/galoy-org/galoy-deployments-pipeline
       inputs:
-      - name: pipeline-tasks
+      - name: shared-files
+        path: repo
       - name: blink-client-repo
         path: source-repo
       params:
@@ -579,13 +581,13 @@ jobs:
         GH_APP_ID: ((github-blinkbitcoin.github_app_id))
         GH_APP_PRIVATE_KEY: ((github-blinkbitcoin.github_app_private_key))
       run:
-        path: pipeline-tasks/ci/tasks/open-pr.sh
+        path: repo/ci/tasks/open-pr.sh
 - name: bump-shared-files-in-blink-nostr
+  serial: true
   plan:
   - in_parallel:
     - get: shared-files
       trigger: true
-    - get: pipeline-tasks
     - get: blink-nostr-repo
   - task: bump-shared-files-blink-nostr
     config:
@@ -599,7 +601,6 @@ jobs:
       inputs:
       - name: shared-files
         path: repo
-      - name: pipeline-tasks
       - name: blink-nostr-repo
         path: source-repo
       outputs:
@@ -610,12 +611,13 @@ jobs:
         - docker
         - chart
       run:
-        path: pipeline-tasks/ci/tasks/bump-shared-files.sh
+        path: repo/ci/tasks/bump-shared-files.sh
   - put: blink-nostr-pr-branch
     params:
       repository: source-repo
       force: true
   - task: open-source-pr
+    attempts: 3
     config:
       platform: linux
       image_resource:
@@ -625,7 +627,8 @@ jobs:
           password: ((docker-creds.password))
           repository: us.gcr.io/galoy-org/galoy-deployments-pipeline
       inputs:
-      - name: pipeline-tasks
+      - name: shared-files
+        path: repo
       - name: blink-nostr-repo
         path: source-repo
       params:
@@ -634,13 +637,13 @@ jobs:
         GH_APP_ID: ((github-blinkbitcoin.github_app_id))
         GH_APP_PRIVATE_KEY: ((github-blinkbitcoin.github_app_private_key))
       run:
-        path: pipeline-tasks/ci/tasks/open-pr.sh
+        path: repo/ci/tasks/open-pr.sh
 - name: bump-shared-files-in-blink-fiat
+  serial: true
   plan:
   - in_parallel:
     - get: shared-files
       trigger: true
-    - get: pipeline-tasks
     - get: blink-fiat-repo
   - task: bump-shared-files-blink-fiat
     config:
@@ -654,7 +657,6 @@ jobs:
       inputs:
       - name: shared-files
         path: repo
-      - name: pipeline-tasks
       - name: blink-fiat-repo
         path: source-repo
       outputs:
@@ -665,12 +667,13 @@ jobs:
         - docker
         - chart
       run:
-        path: pipeline-tasks/ci/tasks/bump-shared-files.sh
+        path: repo/ci/tasks/bump-shared-files.sh
   - put: blink-fiat-pr-branch
     params:
       repository: source-repo
       force: true
   - task: open-source-pr
+    attempts: 3
     config:
       platform: linux
       image_resource:
@@ -680,7 +683,8 @@ jobs:
           password: ((docker-creds.password))
           repository: us.gcr.io/galoy-org/galoy-deployments-pipeline
       inputs:
-      - name: pipeline-tasks
+      - name: shared-files
+        path: repo
       - name: blink-fiat-repo
         path: source-repo
       params:
@@ -689,13 +693,13 @@ jobs:
         GH_APP_ID: ((github-blinkbitcoin.github_app_id))
         GH_APP_PRIVATE_KEY: ((github-blinkbitcoin.github_app_private_key))
       run:
-        path: pipeline-tasks/ci/tasks/open-pr.sh
+        path: repo/ci/tasks/open-pr.sh
 - name: bump-shared-files-in-blink-circles
+  serial: true
   plan:
   - in_parallel:
     - get: shared-files
       trigger: true
-    - get: pipeline-tasks
     - get: blink-circles-repo
   - task: bump-shared-files-blink-circles
     config:
@@ -709,7 +713,6 @@ jobs:
       inputs:
       - name: shared-files
         path: repo
-      - name: pipeline-tasks
       - name: blink-circles-repo
         path: source-repo
       outputs:
@@ -718,12 +721,13 @@ jobs:
         FEATURES:
         - nodejs
       run:
-        path: pipeline-tasks/ci/tasks/bump-shared-files.sh
+        path: repo/ci/tasks/bump-shared-files.sh
   - put: blink-circles-pr-branch
     params:
       repository: source-repo
       force: true
   - task: open-source-pr
+    attempts: 3
     config:
       platform: linux
       image_resource:
@@ -733,7 +737,8 @@ jobs:
           password: ((docker-creds.password))
           repository: us.gcr.io/galoy-org/galoy-deployments-pipeline
       inputs:
-      - name: pipeline-tasks
+      - name: shared-files
+        path: repo
       - name: blink-circles-repo
         path: source-repo
       params:
@@ -742,13 +747,13 @@ jobs:
         GH_APP_ID: ((github-blinkbitcoin.github_app_id))
         GH_APP_PRIVATE_KEY: ((github-blinkbitcoin.github_app_private_key))
       run:
-        path: pipeline-tasks/ci/tasks/open-pr.sh
+        path: repo/ci/tasks/open-pr.sh
 - name: bump-shared-files-in-blink-card
+  serial: true
   plan:
   - in_parallel:
     - get: shared-files
       trigger: true
-    - get: pipeline-tasks
     - get: blink-card-repo
   - task: bump-shared-files-blink-card
     config:
@@ -762,7 +767,6 @@ jobs:
       inputs:
       - name: shared-files
         path: repo
-      - name: pipeline-tasks
       - name: blink-card-repo
         path: source-repo
       outputs:
@@ -773,12 +777,13 @@ jobs:
         - docker
         - chart
       run:
-        path: pipeline-tasks/ci/tasks/bump-shared-files.sh
+        path: repo/ci/tasks/bump-shared-files.sh
   - put: blink-card-pr-branch
     params:
       repository: source-repo
       force: true
   - task: open-source-pr
+    attempts: 3
     config:
       platform: linux
       image_resource:
@@ -788,7 +793,8 @@ jobs:
           password: ((docker-creds.password))
           repository: us.gcr.io/galoy-org/galoy-deployments-pipeline
       inputs:
-      - name: pipeline-tasks
+      - name: shared-files
+        path: repo
       - name: blink-card-repo
         path: source-repo
       params:
@@ -797,13 +803,13 @@ jobs:
         GH_APP_ID: ((github-blinkbitcoin.github_app_id))
         GH_APP_PRIVATE_KEY: ((github-blinkbitcoin.github_app_private_key))
       run:
-        path: pipeline-tasks/ci/tasks/open-pr.sh
+        path: repo/ci/tasks/open-pr.sh
 - name: bump-shared-files-in-blink-lnurl-server
+  serial: true
   plan:
   - in_parallel:
     - get: shared-files
       trigger: true
-    - get: pipeline-tasks
     - get: blink-lnurl-server-repo
   - task: bump-shared-files-blink-lnurl-server
     config:
@@ -817,7 +823,6 @@ jobs:
       inputs:
       - name: shared-files
         path: repo
-      - name: pipeline-tasks
       - name: blink-lnurl-server-repo
         path: source-repo
       outputs:
@@ -828,12 +833,13 @@ jobs:
         - docker
         - chart
       run:
-        path: pipeline-tasks/ci/tasks/bump-shared-files.sh
+        path: repo/ci/tasks/bump-shared-files.sh
   - put: blink-lnurl-server-pr-branch
     params:
       repository: source-repo
       force: true
   - task: open-source-pr
+    attempts: 3
     config:
       platform: linux
       image_resource:
@@ -843,7 +849,8 @@ jobs:
           password: ((docker-creds.password))
           repository: us.gcr.io/galoy-org/galoy-deployments-pipeline
       inputs:
-      - name: pipeline-tasks
+      - name: shared-files
+        path: repo
       - name: blink-lnurl-server-repo
         path: source-repo
       params:
@@ -852,13 +859,13 @@ jobs:
         GH_APP_ID: ((github-blinkbitcoin.github_app_id))
         GH_APP_PRIVATE_KEY: ((github-blinkbitcoin.github_app_private_key))
       run:
-        path: pipeline-tasks/ci/tasks/open-pr.sh
+        path: repo/ci/tasks/open-pr.sh
 - name: bump-shared-files-in-stablesats-rs
+  serial: true
   plan:
   - in_parallel:
     - get: shared-files
       trigger: true
-    - get: pipeline-tasks
     - get: stablesats-rs-repo
   - task: bump-shared-files-stablesats-rs
     config:
@@ -872,7 +879,6 @@ jobs:
       inputs:
       - name: shared-files
         path: repo
-      - name: pipeline-tasks
       - name: stablesats-rs-repo
         path: source-repo
       outputs:
@@ -883,12 +889,13 @@ jobs:
         - docker
         - chart
       run:
-        path: pipeline-tasks/ci/tasks/bump-shared-files.sh
+        path: repo/ci/tasks/bump-shared-files.sh
   - put: stablesats-rs-pr-branch
     params:
       repository: source-repo
       force: true
   - task: open-source-pr
+    attempts: 3
     config:
       platform: linux
       image_resource:
@@ -898,7 +905,8 @@ jobs:
           password: ((docker-creds.password))
           repository: us.gcr.io/galoy-org/galoy-deployments-pipeline
       inputs:
-      - name: pipeline-tasks
+      - name: shared-files
+        path: repo
       - name: stablesats-rs-repo
         path: source-repo
       params:
@@ -907,13 +915,13 @@ jobs:
         GH_APP_ID: ((github-blinkbitcoin.github_app_id))
         GH_APP_PRIVATE_KEY: ((github-blinkbitcoin.github_app_private_key))
       run:
-        path: pipeline-tasks/ci/tasks/open-pr.sh
+        path: repo/ci/tasks/open-pr.sh
 - name: bump-shared-files-in-symphony
+  serial: true
   plan:
   - in_parallel:
     - get: shared-files
       trigger: true
-    - get: pipeline-tasks
     - get: symphony-repo
   - task: bump-shared-files-symphony
     config:
@@ -927,7 +935,6 @@ jobs:
       inputs:
       - name: shared-files
         path: repo
-      - name: pipeline-tasks
       - name: symphony-repo
         path: source-repo
       outputs:
@@ -938,12 +945,13 @@ jobs:
         - docker
         - chart
       run:
-        path: pipeline-tasks/ci/tasks/bump-shared-files.sh
+        path: repo/ci/tasks/bump-shared-files.sh
   - put: symphony-pr-branch
     params:
       repository: source-repo
       force: true
   - task: open-source-pr
+    attempts: 3
     config:
       platform: linux
       image_resource:
@@ -953,7 +961,8 @@ jobs:
           password: ((docker-creds.password))
           repository: us.gcr.io/galoy-org/galoy-deployments-pipeline
       inputs:
-      - name: pipeline-tasks
+      - name: shared-files
+        path: repo
       - name: symphony-repo
         path: source-repo
       params:
@@ -962,13 +971,13 @@ jobs:
         GH_APP_ID: ((github-blinkbitcoin.github_app_id))
         GH_APP_PRIVATE_KEY: ((github-blinkbitcoin.github_app_private_key))
       run:
-        path: pipeline-tasks/ci/tasks/open-pr.sh
+        path: repo/ci/tasks/open-pr.sh
 - name: bump-shared-files-in-blink-admin-panel-private
+  serial: true
   plan:
   - in_parallel:
     - get: shared-files
       trigger: true
-    - get: pipeline-tasks
     - get: blink-admin-panel-private-repo
   - task: bump-shared-files-blink-admin-panel-private
     config:
@@ -982,7 +991,6 @@ jobs:
       inputs:
       - name: shared-files
         path: repo
-      - name: pipeline-tasks
       - name: blink-admin-panel-private-repo
         path: source-repo
       outputs:
@@ -993,12 +1001,13 @@ jobs:
         - docker
         - chart
       run:
-        path: pipeline-tasks/ci/tasks/bump-shared-files.sh
+        path: repo/ci/tasks/bump-shared-files.sh
   - put: blink-admin-panel-private-pr-branch
     params:
       repository: source-repo
       force: true
   - task: open-source-pr
+    attempts: 3
     config:
       platform: linux
       image_resource:
@@ -1008,7 +1017,8 @@ jobs:
           password: ((docker-creds.password))
           repository: us.gcr.io/galoy-org/galoy-deployments-pipeline
       inputs:
-      - name: pipeline-tasks
+      - name: shared-files
+        path: repo
       - name: blink-admin-panel-private-repo
         path: source-repo
       params:
@@ -1017,13 +1027,13 @@ jobs:
         GH_APP_ID: ((github-blinkbitcoin.github_app_id))
         GH_APP_PRIVATE_KEY: ((github-blinkbitcoin.github_app_private_key))
       run:
-        path: pipeline-tasks/ci/tasks/open-pr.sh
+        path: repo/ci/tasks/open-pr.sh
 - name: bump-shared-files-in-blink-terminal
+  serial: true
   plan:
   - in_parallel:
     - get: shared-files
       trigger: true
-    - get: pipeline-tasks
     - get: blink-terminal-repo
   - task: bump-shared-files-blink-terminal
     config:
@@ -1037,7 +1047,6 @@ jobs:
       inputs:
       - name: shared-files
         path: repo
-      - name: pipeline-tasks
       - name: blink-terminal-repo
         path: source-repo
       outputs:
@@ -1048,12 +1057,13 @@ jobs:
         - docker
         - chart
       run:
-        path: pipeline-tasks/ci/tasks/bump-shared-files.sh
+        path: repo/ci/tasks/bump-shared-files.sh
   - put: blink-terminal-pr-branch
     params:
       repository: source-repo
       force: true
   - task: open-source-pr
+    attempts: 3
     config:
       platform: linux
       image_resource:
@@ -1063,7 +1073,8 @@ jobs:
           password: ((docker-creds.password))
           repository: us.gcr.io/galoy-org/galoy-deployments-pipeline
       inputs:
-      - name: pipeline-tasks
+      - name: shared-files
+        path: repo
       - name: blink-terminal-repo
         path: source-repo
       params:
@@ -1072,7 +1083,7 @@ jobs:
         GH_APP_ID: ((github-blinkbitcoin.github_app_id))
         GH_APP_PRIVATE_KEY: ((github-blinkbitcoin.github_app_private_key))
       run:
-        path: pipeline-tasks/ci/tasks/open-pr.sh
+        path: repo/ci/tasks/open-pr.sh
 - name: backup-org-to-gcp
   plan:
   - in_parallel:

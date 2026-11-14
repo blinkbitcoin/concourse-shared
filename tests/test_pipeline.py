@@ -26,6 +26,28 @@ class PipelineTests(unittest.TestCase):
             jobs = [j for j in pipeline["jobs"] if j["name"].startswith("bump-shared-files-")]
             self.assertEqual(bool(jobs), enabled)
 
+    def test_bump_jobs_are_serial_and_run_scripts_from_the_trigger(self):
+        pipeline = json.loads(self.render("--data-value-yaml", "enable_shared_file_updates=true", "-o", "json"))
+        jobs = [j for j in pipeline["jobs"] if j["name"].startswith("bump-shared-files-in-")]
+        self.assertEqual(len(jobs), len(pipeline["groups"][[g["name"] for g in pipeline["groups"]].index("bump-shared-files")]["jobs"]))
+        for job in jobs:
+            with self.subTest(job=job["name"]):
+                self.assertIs(job.get("serial"), True)
+                gets = [s["get"] for s in job["plan"][0]["in_parallel"]]
+                self.assertIn("shared-files", gets)
+                self.assertNotIn("pipeline-tasks", gets)
+                triggers = [s["get"] for s in job["plan"][0]["in_parallel"] if s.get("trigger")]
+                self.assertEqual(triggers, ["shared-files"])
+                tasks = [s for s in job["plan"] if "task" in s]
+                self.assertEqual(len(tasks), 2)
+                for task in tasks:
+                    inputs = {i["name"]: i.get("path", i["name"]) for i in task["config"]["inputs"]}
+                    self.assertEqual(inputs.get("shared-files"), "repo")
+                    self.assertNotIn("pipeline-tasks", inputs)
+                    self.assertTrue(task["config"]["run"]["path"].startswith("repo/ci/tasks/"))
+                open_pr = next(t for t in tasks if t["task"] == "open-source-pr")
+                self.assertGreaterEqual(open_pr.get("attempts", 1), 2)
+
     def test_all_image_builds_use_root_context_and_shared_gate(self):
         pipeline = json.loads(self.render("-o", "json"))
         resources = {r["name"]: r for r in pipeline["resources"]}
