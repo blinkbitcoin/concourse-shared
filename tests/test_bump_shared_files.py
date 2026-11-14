@@ -23,7 +23,7 @@ VENDIR_STUB = textwrap.dedent(f"""\
     printf 'shared: true\\n' > vendor/pipeline-fragments.lib.yml
     printf 'name: audit\\n' > ../.github/workflows/vendor/nodejs-audit.yml
     for name in ${{STUB_BIN_FILES-}}; do
-      mkdir -p ../bin/vendor
+      mkdir -p "$(dirname "../bin/vendor/$name")"
       printf '#!/bin/sh\\n' > "../bin/vendor/$name"
     done
     """)
@@ -113,6 +113,15 @@ class BumpSharedFilesTests(unittest.TestCase):
         self.assertTrue((self.source / "bin/tool.sh").is_file())
         self.assertEqual(git(self.source, "status", "--porcelain"), "")
 
+    def test_bin_directories_merge_instead_of_nesting(self):
+        (self.source / "bin/lib").mkdir(parents=True)
+        (self.source / "bin/lib/old.sh").write_text("#!/bin/sh\n")
+        self.env["STUB_BIN_FILES"] = "tofu-lib/new.sh"
+        self.run_script()
+        self.assertTrue((self.source / "bin/lib/new.sh").is_file())
+        self.assertFalse((self.source / "bin/lib/tofu-lib").exists())
+        self.assertTrue((self.source / "bin/vendor/tofu-lib/new.sh").is_file())
+
     def test_generated_vendir_config_pins_ref_without_trailing_blank_line(self):
         self.run_script()
         config = (self.source / "ci/vendir.yml").read_text()
@@ -133,9 +142,9 @@ class VendoredSourceWhitespaceTests(unittest.TestCase):
         paths = [ROOT / "vendir.tmpl.yml", *sorted(p for p in (ROOT / "shared").rglob("*") if p.is_file())]
         problems = []
         for path in paths:
-            text = path.read_text()
+            text = path.read_bytes().decode()  # keep CR bytes visible
             for number, line in enumerate(text.split("\n"), 1):
-                if line != line.rstrip(" \t"):
+                if line != line.rstrip(" \t\r"):
                     problems.append(f"{path.relative_to(ROOT)}:{number}: trailing whitespace")
             if text.endswith("\n\n"):
                 problems.append(f"{path.relative_to(ROOT)}: blank line at EOF")

@@ -96,7 +96,13 @@ if [ -d "bin/vendor" ]; then
     for prefix in nodejs- rust- docker- chart- tofu-; do
       name=${name#"$prefix"}
     done
-    cp -R "$vendored" "bin/$name"
+    if [ -d "$vendored" ]; then
+      # Merge into an existing directory instead of nesting a copy inside it.
+      mkdir -p "bin/$name"
+      cp -R "$vendored/." "bin/$name/"
+    else
+      cp "$vendored" "bin/$name"
+    fi
   done
   shopt -u nullglob
 fi
