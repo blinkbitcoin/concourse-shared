@@ -112,6 +112,7 @@ adoption gate until the owning pipeline has run. The release Python 3.11/Bookwor
 a candidate until downstream release jobs qualify it. No compatibility
 promotion is automated. A separate reviewed promotion may move `latest`.
 
-Shared-file propagation is disabled by default, including its generated jobs
-and repository resources. Each source owner must authorize activation before
-`enable_shared_file_updates` is enabled in a separate change.
+Shared-file propagation is controlled by `enable_shared_file_updates`, including
+its generated jobs and repository resources. It was disabled during the trust
+image rollout and re-enabled in a separate, owner-authorized change. Turn it off
+again before any change that must not open consumer PRs.
