@@ -596,6 +596,92 @@ source:
   private_key: #@ data.values.github_private_key
 #@ end
 
+#! ZRH1 SSH Docker hosts. Opt-in replacements for docker_host_pool,
+#! run_on_nix_host and test_on_docker_host; see docs/zrh1-docker-hosts.md.
+#! Jobs run once per claim on untagged workers and release the host only after
+#! a confirmed remote cleanup; otherwise the claim is kept as quarantine.
+
+#@ def zrh1_docker_host_pool():
+name: zrh1-docker-host
+type: pool
+source:
+  uri: git@github.com:blinkbitcoin/concourse-locks.git
+  branch: main
+  pool: zrh1-docker-hosts
+  private_key: #@ data.values.github_private_key
+#@ end
+
+#@ def zrh1_docker_host_job(name, image_resource, params, workload_timeout_minutes, on_failure=None):
+#@ if type(workload_timeout_minutes) != "int" or workload_timeout_minutes < 1 or workload_timeout_minutes > 999:
+#@   assert.fail("workload_timeout_minutes must be an integer from 1 to 999")
+#@ end
+#@ params = dict(params)
+#@ params["REPO_PATH"] = data.values.gh_repository + "-" + name
+#@ params["GOOGLE_CREDENTIALS"] = "((staging-gcp-creds.creds_json))"
+#@ params["SSH_PRIVATE_KEY"] = "((staging-ssh.ssh_private_key))"
+#@ params["WORKLOAD_TIMEOUT_MINUTES"] = str(workload_timeout_minutes)
+name: #@ name
+serial: true
+plan:
+- { put: zrh1-docker-host, params: { acquire: true } }
+- in_parallel:
+  - { get: repo, trigger: true }
+  - { get: pipeline-tasks }
+- task: #@ name
+  attempts: 1
+  timeout: #@ str(workload_timeout_minutes + 10) + "m"
+  config:
+    platform: linux
+    image_resource: #@ image_resource
+    inputs:
+    - name: pipeline-tasks
+    - name: zrh1-docker-host
+    - name: repo
+      path: #@ params["REPO_PATH"]
+    outputs:
+    - name: host-cleanup
+    params: #@ params
+    run:
+      path: pipeline-tasks/ci/vendor/tasks/ssh-host-run.sh
+  ensure:
+    do:
+    - task: check-host-cleanup
+      config:
+        platform: linux
+        image_resource: #@ image_resource
+        inputs:
+        - name: pipeline-tasks
+        - name: zrh1-docker-host
+        - name: host-cleanup
+          optional: true
+        run:
+          path: bash
+          args: [pipeline-tasks/ci/vendor/tasks/ssh-host-check-cleanup.sh]
+    - put: zrh1-docker-host
+      params:
+        release: zrh1-docker-host
+#@ if on_failure != None:
+on_failure: #@ on_failure
+#@ end
+#@ end
+
+#@ def run_on_zrh1_nix_host(name, cmd, additional_params={}, workload_timeout_minutes=12):
+#@ params = dict(additional_params)
+#@ params["SSH_HOST_MODE"] = "nix"
+#@ params["CMD"] = cmd
+#@ params["PARAMS_KEYS"] = " ".join(additional_params.keys())
+#@ return zrh1_docker_host_job(name, nodejs_task_image_config(), params, workload_timeout_minutes)
+#@ end
+
+#@ def test_on_zrh1_docker_host(container, additional_params={}, workload_timeout_minutes=20):
+#@ params = dict(additional_params)
+#@ params["SSH_HOST_MODE"] = "compose"
+#@ params["TEST_CONTAINER"] = container
+#@ params["JEST_TIMEOUT"] = 90000
+#@ params["PARAMS_KEYS"] = " ".join(additional_params.keys())
+#@ return zrh1_docker_host_job(container, rust_task_image_config(), params, workload_timeout_minutes, slack_failure_notification())
+#@ end
+
 #@ def gcr_resource_type():
 name: gcs-resource
 type: docker-image

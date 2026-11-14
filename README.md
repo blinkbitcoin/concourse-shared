@@ -74,3 +74,11 @@ Files whose names don't start with them are treated as common and synced to all.
 
 - Concourse CI:
   - Open Charts PR
+
+### Docker hosts
+
+Jobs that need a Docker host use the ZRH1 SSH Docker-host fragments
+(`run_on_zrh1_nix_host`, `test_on_zrh1_docker_host`, `zrh1_docker_host_pool`).
+The GCP fragments (`run_on_nix_host`, `test_on_docker_host`,
+`docker_host_pool`) remain until every consumer has migrated. See
+[docs/zrh1-docker-hosts.md](docs/zrh1-docker-hosts.md).

@@ -1,0 +1,31 @@
+name: ZRH1 SSH Docker-host transport
+'on':
+  pull_request:
+    paths:
+      - '.github/workflows/ssh-host-transport.yml'
+      - 'shared/ci/pipeline-fragments.lib.yml'
+      - 'shared/ci/tasks/ssh-host-*'
+      - 'tests/test_ssh_host*.py'
+      - 'vendir.tmpl.yml'
+permissions:
+  contents: read
+jobs:
+  transport:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install pinned ytt for fragment rendering
+        run: |
+          curl --fail --silent --show-error --location --retry 3 \
+            https://github.com/carvel-dev/ytt/releases/download/v0.55.4/ytt-linux-amd64 \
+            --output "$RUNNER_TEMP/ytt"
+          echo '214138d930f5865d561b62f3acba79207afb02c1d87814eb2a2693ea8a33fb9d  '"$RUNNER_TEMP/ytt" | sha256sum --check
+          sudo install -m 0755 "$RUNNER_TEMP/ytt" /usr/local/bin/ytt
+          ytt version
+      # Linux runs the real remote supervisor and process-group fixtures,
+      # which are skipped on macOS. Fragment tests require ytt here.
+      - run: python3 -m unittest discover -s tests -p 'test_ssh_host*.py' -v
+      - run: shellcheck shared/ci/tasks/ssh-host-*.sh
