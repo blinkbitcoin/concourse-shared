@@ -101,9 +101,10 @@ PID 1 is never a target, even when it is Kaniko's parent. It refuses self/init
 targets, PID reuse or more than 4096 processes. It sends TERM and CONT only
 through pinned descriptors, waits 10 seconds, and sends KILL to survivors. It
 rejects a target sharing any ancestor other than PID 1 with the helper. It then
-reconciles the complete container process inventory until two scans are clean. Any late process makes cleanup fail closed; the helper does
-not signal it because it cannot distinguish a workload fork from a concurrent
-administrative exec. On preflight failure it attempts to resume every process it
+reconciles the complete container process inventory until two scans are clean.
+Any late process makes cleanup fail closed; the helper does not signal it
+because it cannot distinguish a workload fork from a concurrent administrative
+exec. On preflight failure it attempts to resume every process it
 stopped; after TERM delivery starts or becomes uncertain it never resumes a
 partially terminated workload. It requires Linux and Python with pidfd support.
 Do not weaken a failed guard.
@@ -116,9 +117,11 @@ identity evidence and receipt in protected operator storage.
 
 Independently enumerate the complete `/proc` process inventory in the **same
 terminal container** and require that no live process remains other than PID 1
-and the checking intercept's own processes (for example its shell and the
-inventory command). Do not rely on command names or descendants of the
-original Kaniko PID: a late fork can change both its name and parent. Zombies are
+and the checking intercept's own process tree: the shell or command it started
+(`$$` in a shell) and that process's descendants, identified by ancestry, never
+by name. A workload process cannot be reparented under that tree. Do not rely
+on command names or descendants of the original Kaniko PID: a late fork can
+change both its name and parent. Zombies are
 exited processes, not active compilation. Recheck that no publication occurred
 and that no newer build is active. Only then unpause and trigger at most one clean
 retry; first check whether normal scheduling already created it.
