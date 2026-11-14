@@ -51,8 +51,15 @@ RUN git config --global user.email "202112752+blinkbitcoinbot@users.noreply.gith
   && git config --global user.name "CI blinkbitcoinbot"
 
 # Explicit system trust bootstraps pip's separately bundled CA update.
-RUN python -m pip install --cert /etc/ssl/certs/ca-certificates.crt --upgrade pip==26.2.2 certifi==2026.10.19 \
-  && python -m pip install --upgrade bump2version
+# pip 26.3 vendors certifi 2026.10.23; both drop the removed eMudhra roots.
+RUN python -m pip install --cert /etc/ssl/certs/ca-certificates.crt --upgrade pip==26.3 certifi==2026.10.23 \
+  && python -m pip install --upgrade bump2version \
+  && python -c 'import certifi, pip._vendor.certifi as vendored; \
+removed = ("emSign Root CA - C1", "emSign ECC Root CA - C3", "emSign Root CA - G3", "emSign ECC Root CA - G3"); \
+bundles = {"certifi": certifi.where(), "pip": vendored.where()}; \
+found = [(name, label) for name, path in bundles.items() for label in removed if f"# Label: \"{label}\"" in open(path).read()]; \
+assert not found, f"removed eMudhra roots still trusted: {found}"; \
+print("certifi and pip bundles exclude removed eMudhra roots")'
 
 ENV GH_CLI_VERSION 2.23.0
 RUN mkdir ghcli && cd ghcli \

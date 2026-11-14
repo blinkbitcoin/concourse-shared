@@ -1,4 +1,4 @@
-FROM node:24.22.1-bookworm@sha256:6449e19d8184d84062525b6a7524def03146c2cb04a7f08b076680d0e8e4240a AS trust-base
+FROM node:24.22.3-bookworm@sha256:9d266751ca3d7fdbe651c878ffd5ad0a42fed49a18c283509267c97f025b7496 AS trust-base
 
 # Build from the repository root so all images use the same admission gate.
 COPY images/trust /usr/local/lib/ci-trust
