@@ -114,5 +114,8 @@ promotion is automated. A separate reviewed promotion may move `latest`.
 
 Shared-file propagation is controlled by `enable_shared_file_updates`, including
 its generated jobs and repository resources. It was disabled during the trust
-image rollout and re-enabled in a separate, owner-authorized change. Turn it off
-again before any change that must not open consumer PRs.
+image rollout and re-enabled in a separate, owner-authorized change. While it is
+on, every change under `shared/` or to `vendir.tmpl.yml` on `main` replaces the
+bump PR in every consumer (closes the open one and opens a new one). To stop
+that, turn the flag off and repipe before such a change merges; the flag has no
+effect until the pipeline is set.
