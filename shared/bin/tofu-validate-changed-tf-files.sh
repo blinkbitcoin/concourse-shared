@@ -56,7 +56,7 @@ while IFS= read -r dir; do
     echo -e "${YELLOW}========================================${NC}"
     echo -e "${YELLOW}Processing: ${dir}${NC}"
     echo -e "${YELLOW}========================================${NC}"
-    
+
     # Change to the directory
     cd "$dir"
 
@@ -76,7 +76,7 @@ while IFS= read -r dir; do
         cd - > /dev/null
         continue
     fi
-    
+
     # Run prepare script if it exists
     REPO_ROOT=$(git rev-parse --show-toplevel)
     PREPARE_SCRIPT="${REPO_ROOT}/bin/prepare-for-validate.sh"
@@ -91,7 +91,7 @@ while IFS= read -r dir; do
             continue
         fi
     fi
-    
+
     # Run tofu validate
     echo -e "${YELLOW}Running: tofu validate${NC}"
     if tofu validate; then
@@ -101,7 +101,7 @@ while IFS= read -r dir; do
         echo -e "${RED}✗ tofu validate failed in ${dir}${NC}"
         FAILED_DIRS+=("${dir} (validate failed)")
     fi
-    
+
     # Return to original directory
     cd - > /dev/null
     echo ""

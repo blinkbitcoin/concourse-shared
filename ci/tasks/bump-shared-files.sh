@@ -87,20 +87,18 @@ fi
 
 echo "    --> Process bin files if directory exists"
 if [ -d "bin/vendor" ]; then
-  pushd bin/vendor
-
-  echo "    --> Removing feature prefixes from bin files"
-  rename -f 's/^nodejs-//' *
-  rename -f 's/^rust-//' *
-  rename -f 's/^docker-//' *
-  rename -f 's/^chart-//' *
-  rename -f 's/^tofu-//' *
-
-  popd
-
-  echo "    --> Move bin files to root bin directory"
-  mkdir -p bin
-  mv bin/vendor/* bin/ || true
+  # Copy, do not move or rename in place: bin/vendor must stay an exact vendir
+  # snapshot of ci/vendir.yml, like ci/vendor and .github/workflows/vendor.
+  echo "    --> Copying bin files to root bin directory without feature prefixes"
+  shopt -s nullglob
+  for vendored in bin/vendor/*; do
+    name=${vendored##*/}
+    for prefix in nodejs- rust- docker- chart- tofu-; do
+      name=${name#"$prefix"}
+    done
+    cp -R "$vendored" "bin/$name"
+  done
+  shopt -u nullglob
 fi
 
 echo "    --> Committing changes"

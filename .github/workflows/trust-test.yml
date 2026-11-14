@@ -9,6 +9,7 @@ on:
       - 'tests/test_pipeline.py'
       - 'tests/test_bump_shared_files.py'
       - 'vendir.tmpl.yml'
+      - 'shared/**'
       - 'tests/test_trust.py'
       - 'tests/test_registry_proof.py'
       - 'tests/test_prepare_image_tags.py'

@@ -22,6 +22,10 @@ VENDIR_STUB = textwrap.dedent(f"""\
     done
     printf 'shared: true\\n' > vendor/pipeline-fragments.lib.yml
     printf 'name: audit\\n' > ../.github/workflows/vendor/nodejs-audit.yml
+    for name in ${{STUB_BIN_FILES-}}; do
+      mkdir -p ../bin/vendor
+      printf '#!/bin/sh\\n' > "../bin/vendor/$name"
+    done
     """)
 
 
@@ -38,6 +42,8 @@ class BumpSharedFilesTests(unittest.TestCase):
             HOME=str(self.tmp / "home"),
             XDG_CONFIG_HOME=str(self.tmp / "home"),
             GIT_CONFIG_NOSYSTEM="1",
+            # The script writes a git identity globally; never touch the real one.
+            GIT_CONFIG_GLOBAL=str(self.tmp / "home" / ".gitconfig"),
             PATH=f"{self.tmp / 'bin'}:{os.environ['PATH']}",
             FEATURES="[]",
         )
@@ -64,6 +70,7 @@ class BumpSharedFilesTests(unittest.TestCase):
             )
         self.ref = git(repo, "rev-parse", "HEAD")
         self.source = source
+        self.initial = git(source, "rev-parse", "HEAD")
 
     def run_script(self, check=True):
         return subprocess.run(
@@ -90,7 +97,21 @@ class BumpSharedFilesTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("expected at most one dependabot config", result.stdout)
         self.assertFalse((self.source / ".github/dependabot.yml").exists())
-        self.assertNotEqual(git(self.source, "log", "-1", "--format=%s"), "ci(shared): bump vendored ci files")
+        self.assertEqual(git(self.source, "rev-parse", "HEAD"), self.initial)
+        self.assertEqual(
+            sorted(p.name for p in (self.source / "ci/vendor/config").iterdir()),
+            ["nodejs-dependabot.yml", "rust-dependabot.yml"],
+        )
+
+    def test_bin_files_are_copied_out_of_the_vendor_snapshot(self):
+        self.env["STUB_BIN_FILES"] = "tofu-validate.sh nodejs-rust-tool.sh"
+        self.run_script()
+        vendor = self.source / "bin/vendor"
+        self.assertEqual(sorted(p.name for p in vendor.iterdir()),
+                         ["nodejs-rust-tool.sh", "tofu-validate.sh"])
+        self.assertTrue((self.source / "bin/validate.sh").is_file())
+        self.assertTrue((self.source / "bin/tool.sh").is_file())
+        self.assertEqual(git(self.source, "status", "--porcelain"), "")
 
     def test_generated_vendir_config_pins_ref_without_trailing_blank_line(self):
         self.run_script()
@@ -104,6 +125,21 @@ class BumpSharedFilesTests(unittest.TestCase):
         self.run_script()
         self.assertEqual(git(self.source, "status", "--porcelain"), "")
         self.assertEqual(git(self.source, "log", "-1", "--format=%s"), "ci(shared): bump vendored ci files")
+
+
+class VendoredSourceWhitespaceTests(unittest.TestCase):
+    def test_vendored_sources_pass_git_diff_check(self):
+        # Consumers commit these bytes; `git diff --check` there must stay clean.
+        paths = [ROOT / "vendir.tmpl.yml", *sorted(p for p in (ROOT / "shared").rglob("*") if p.is_file())]
+        problems = []
+        for path in paths:
+            text = path.read_text()
+            for number, line in enumerate(text.split("\n"), 1):
+                if line != line.rstrip(" \t"):
+                    problems.append(f"{path.relative_to(ROOT)}:{number}: trailing whitespace")
+            if text.endswith("\n\n"):
+                problems.append(f"{path.relative_to(ROOT)}: blank line at EOF")
+        self.assertEqual(problems, [])
 
 
 if __name__ == "__main__":
