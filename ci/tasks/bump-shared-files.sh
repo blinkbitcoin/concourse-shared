@@ -67,10 +67,16 @@ popd
 
 echo "    --> Copying dependabot config"
 # Copy, do not move: ci/vendor must stay an exact vendir snapshot of ci/vendir.yml.
-for dependabot_config in ci/vendor/config/*-dependabot.yml; do
-  [[ -f "${dependabot_config}" ]] || continue
-  cp "${dependabot_config}" .github/dependabot.yml
-done
+shopt -s nullglob
+dependabot_configs=(ci/vendor/config/*-dependabot.yml)
+shopt -u nullglob
+if (( ${#dependabot_configs[@]} > 1 )); then
+  echo "Error: expected at most one dependabot config, found: ${dependabot_configs[*]}" >&2
+  exit 1
+fi
+if (( ${#dependabot_configs[@]} == 1 )); then
+  cp "${dependabot_configs[0]}" .github/dependabot.yml
+fi
 
 if [[ ! -f ./typos.toml ]]; then
   cat <<EOF > typos.toml

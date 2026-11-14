@@ -17,7 +17,9 @@ VENDIR_STUB = textwrap.dedent(f"""\
     set -eu
     [[ "$1" == "sync" ]]
     mkdir -p vendor/config vendor/tasks ../.github/workflows/vendor
-    printf '{DEPENDABOT}' > vendor/config/nodejs-dependabot.yml
+    for feature in ${{STUB_DEPENDABOT_FEATURES-nodejs}}; do
+      printf '{DEPENDABOT}' > "vendor/config/${{feature}}-dependabot.yml"
+    done
     printf 'shared: true\\n' > vendor/pipeline-fragments.lib.yml
     printf 'name: audit\\n' > ../.github/workflows/vendor/nodejs-audit.yml
     """)
@@ -63,10 +65,10 @@ class BumpSharedFilesTests(unittest.TestCase):
         self.ref = git(repo, "rev-parse", "HEAD")
         self.source = source
 
-    def run_script(self):
-        subprocess.run(
-            ["bash", str(SCRIPT)], cwd=self.tmp, env=self.env, check=True,
-            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+    def run_script(self, check=True):
+        return subprocess.run(
+            ["bash", str(SCRIPT)], cwd=self.tmp, env=self.env, check=check,
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
         )
 
     def test_vendor_tree_keeps_dependabot_config(self):
@@ -75,6 +77,20 @@ class BumpSharedFilesTests(unittest.TestCase):
         self.assertTrue(vendored.is_file(), "ci/vendor must remain an exact vendir snapshot")
         self.assertEqual(vendored.read_text(), DEPENDABOT)
         self.assertEqual((self.source / ".github/dependabot.yml").read_text(), DEPENDABOT)
+
+    def test_no_dependabot_config_is_left_alone(self):
+        self.env["STUB_DEPENDABOT_FEATURES"] = ""
+        self.run_script()
+        self.assertFalse((self.source / ".github/dependabot.yml").exists())
+        self.assertEqual(git(self.source, "status", "--porcelain"), "")
+
+    def test_multiple_dependabot_configs_fail_instead_of_overwriting(self):
+        self.env["STUB_DEPENDABOT_FEATURES"] = "nodejs rust"
+        result = self.run_script(check=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("expected at most one dependabot config", result.stdout)
+        self.assertFalse((self.source / ".github/dependabot.yml").exists())
+        self.assertNotEqual(git(self.source, "log", "-1", "--format=%s"), "ci(shared): bump vendored ci files")
 
     def test_generated_vendir_config_pins_ref_without_trailing_blank_line(self):
         self.run_script()
