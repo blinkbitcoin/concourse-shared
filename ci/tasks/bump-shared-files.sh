@@ -66,7 +66,17 @@ rename -f 's/^tofu-//' *
 popd
 
 echo "    --> Copying dependabot config"
-mv ci/vendor/config/*-dependabot.yml .github/dependabot.yml || true
+# Copy, do not move: ci/vendor must stay an exact vendir snapshot of ci/vendir.yml.
+shopt -s nullglob
+dependabot_configs=(ci/vendor/config/*-dependabot.yml)
+shopt -u nullglob
+if (( ${#dependabot_configs[@]} > 1 )); then
+  echo "Error: expected at most one dependabot config, found: ${dependabot_configs[*]}" >&2
+  exit 1
+fi
+if (( ${#dependabot_configs[@]} == 1 )); then
+  cp "${dependabot_configs[0]}" .github/dependabot.yml
+fi
 
 if [[ ! -f ./typos.toml ]]; then
   cat <<EOF > typos.toml
@@ -77,20 +87,24 @@ fi
 
 echo "    --> Process bin files if directory exists"
 if [ -d "bin/vendor" ]; then
-  pushd bin/vendor
-
-  echo "    --> Removing feature prefixes from bin files"
-  rename -f 's/^nodejs-//' *
-  rename -f 's/^rust-//' *
-  rename -f 's/^docker-//' *
-  rename -f 's/^chart-//' *
-  rename -f 's/^tofu-//' *
-
-  popd
-
-  echo "    --> Move bin files to root bin directory"
-  mkdir -p bin
-  mv bin/vendor/* bin/ || true
+  # Copy, do not move or rename in place: bin/vendor must stay an exact vendir
+  # snapshot of ci/vendir.yml, like ci/vendor and .github/workflows/vendor.
+  echo "    --> Copying bin files to root bin directory without feature prefixes"
+  shopt -s nullglob
+  for vendored in bin/vendor/*; do
+    name=${vendored##*/}
+    for prefix in nodejs- rust- docker- chart- tofu-; do
+      name=${name#"$prefix"}
+    done
+    if [ -d "$vendored" ]; then
+      # Merge into an existing directory instead of nesting a copy inside it.
+      mkdir -p "bin/$name"
+      cp -R "$vendored/." "bin/$name/"
+    else
+      cp "$vendored" "bin/$name"
+    fi
+  done
+  shopt -u nullglob
 fi
 
 echo "    --> Committing changes"
