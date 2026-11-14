@@ -10,6 +10,8 @@ on:
       - 'tests/test_trust.py'
       - 'tests/test_registry_proof.py'
       - 'tests/test_prepare_image_tags.py'
+      - 'tests/test_orphan_cleanup.py'
+      - 'tests/smoke-cleanup-runtime.sh'
 permissions:
   contents: read
 jobs:
@@ -38,6 +40,13 @@ jobs:
         run: |
           python3 images/trust/registry-proof.py snapshot gcr.io/kaniko-project/executor v1.24.0-debug /tmp/registry-proof.json
           python3 -c 'import json; assert json.load(open("/tmp/registry-proof.json"))["previous_candidate_digest"] == "sha256:2562c4fe551399514277ffff7dcca9a3b1628c4ea38cb017d7286dc6ea52f4cd"'
+  orphan-cleanup-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Stage the pinned runtime and stop a real orphaned build in the pinned Kaniko image
+        run: tests/smoke-cleanup-runtime.sh
   image:
     runs-on: ubuntu-latest
     timeout-minutes: 90

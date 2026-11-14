@@ -1,0 +1,7 @@
+{
+  "python": "3.13.18",
+  "release": "20261110",
+  "upstream_url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261110/cpython-3.13.18%2B20261110-x86_64-unknown-linux-musl-lto%2Bstatic-full.tar.zst",
+  "upstream_sha256": "45eb6e108f92e9503ea21376413af5749015dfd706b729a8e80a2530a2cc5e19",
+  "runtime_sha256": "ba3a1d80091df80ee3f8b701a994ddee6b8748dc7701446409e0911cde5ecca0"
+}

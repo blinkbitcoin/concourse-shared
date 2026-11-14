@@ -1,0 +1,147 @@
+# Stop an orphaned image build
+
+Task: https://github.com/blinkbitcoin/blink-wip/issues/1808
+
+Use this only after an operator authorizes cleanup of a terminal Concourse build
+whose Kaniko executor is still running. It does not stop a worker, remove a
+container, modify image contents, publish an image, or restart a build.
+
+## Preconditions
+
+1. Pause the affected image job. Read `fly -t TARGET builds --job PIPELINE/JOB
+   --json` and confirm the intended build is terminal with no newer or active
+   build. Inspect its resources and retained log: no publication may be in doubt.
+2. Read `fly -t TARGET containers --json`. Select exactly one record matching
+   team, build ID, pipeline, job, `step_name=build`, and `type=task`. Record its
+   `id` and `worker_name`. Use that exact container ID with `--handle` below.
+3. In that **terminal build container only**, inspect `/proc/PID/stat`,
+   `/proc/PID/cmdline` and `/proc/PID/cwd`. Record the Kaniko PID (never 1), its
+   start time (stat field 22), SHA256 of the exact NUL-separated cmdline bytes,
+   and working directory. Confirm `/kaniko/executor` and the expected source
+   context, Dockerfile, no-push, archive and digest arguments. Record process
+   ancestry and refuse unrelated or ambiguous workloads. In a Concourse task
+   container PID 1 is the runtime init (`gdn-init`), and the task process and
+   every intercept are exec'd from outside the container, so their parent PID
+   reads as 0.
+4. Keep other candidate jobs paused until verification below is complete.
+
+## Stage the cleanup runtime
+
+The build task runs the pinned `gcr.io/kaniko-project/executor:v1.24.0-debug`
+image, which has BusyBox but no Python. Do not use a `python3` that the build
+may have unpacked from its target rootfs: it may be missing, from a different
+stage, or untrusted. Instead, stage the fully static musl CPython pinned in
+[`cleanup-runtime.json`](cleanup-runtime.json) (python-build-standalone,
+x86-64; Python 3.11+ with pidfd support is required). BusyBox has no zstd and
+upstream publishes the static build only as `.tar.zst`, so it is repacked into
+a reproducible plain tar first.
+
+1. On a trusted operator machine with `zstd`, download `upstream_url`, then run
+   [`build-cleanup-runtime.py`](build-cleanup-runtime.py) on it. The script
+   verifies `upstream_sha256`, keeps only the interpreter and `lib/python3.13`
+   (the standard library plus its bundled `site-packages/pip`, inert under
+   `-I`; without `test/` and `config-*/`), writes fixed metadata, and refuses
+   any output that does not match `runtime_sha256`.
+2. Stream that tar into the retained container with the reviewed
+   [`stage-cleanup-runtime.sh`](stage-cleanup-runtime.sh), passing its exact
+   bytes to the image's BusyBox shell. The script verifies `runtime_sha256`
+   again inside the container with BusyBox `sha256sum`, unpacks to
+   `/kaniko/orphan-cleanup-runtime`, and checks the interpreter version and
+   pidfd support. If the script fails or its session is hung up, interrupted
+   or terminated, it removes the partial runtime (once the current step, such
+   as reading stdin, returns); after a SIGKILL a leftover
+   directory remains and restaging refuses until an operator inspects and
+   removes it. It refuses to overwrite an existing runtime. `/kaniko` is
+   excluded from Kaniko snapshots, so staging there cannot change image layers.
+
+```python
+runtime = json.loads(Path("ci/ops/cleanup-runtime.json").read_text())
+stage = Path("ci/ops/stage-cleanup-runtime.sh").read_text()
+with open(built_runtime_tar, "rb") as archive:
+    subprocess.run([
+        "fly", "-t", target, "intercept", "--handle", container_id, "--",
+        "/busybox/sh", "-c", stage, "stage", runtime["runtime_sha256"],
+    ], stdin=archive, check=True)
+```
+
+Staging must finish before cleanup starts: any concurrent intercept is an
+unrelated live process, and the helper fails closed on it. The digest check is
+point in time: the orphaned build still runs as root in the same container and
+could modify the staged files afterwards. Run cleanup immediately after staging
+and rely on the independent verification below, not on the helper receipt
+alone. The
+[smoke test](../../tests/smoke-cleanup-runtime.sh) runs this staging and the
+cleanup below against a real orphaned Kaniko build in the exact pinned image.
+
+## Cleanup
+
+Immediately before running the helper, recheck the external build and container
+identity (precondition 2) and the recorded Kaniko PID, start time, cmdline hash
+and working directory (precondition 3). Stop if anything changed.
+
+Use the reviewed helper's exact source bytes as Python's `-c` argument (or a
+verified identical staged copy). Do not interpolate process data into code.
+For example, from a trusted local Python operator session:
+
+```python
+source = Path("ci/ops/stop-orphaned-image-build.py").read_text()
+subprocess.run([
+    "fly", "-t", target, "intercept", "--handle", container_id, "--",
+    "/kaniko/orphan-cleanup-runtime/python/bin/python3", "-I", "-c", source,
+    "--apply", str(pid), str(start), command_sha256, working_directory,
+], check=True)
+```
+
+The helper first verifies that the retained task container has no unrelated live
+workload, then pins and freezes the root with a Linux pidfd before its final
+command and working-directory check. It protects only PID 1 (the container
+init) and the helper's own ancestry, and freezes every other live process in the
+dedicated container, so a descendant cannot leave scope merely by reparenting.
+PID 1 is never a target, even when it is Kaniko's parent. It refuses self/init
+targets, PID reuse or more than 4096 processes. It sends TERM and CONT only
+through pinned descriptors, waits 10 seconds, and sends KILL to survivors. It
+rejects a target sharing any ancestor other than PID 1 with the helper. It then
+reconciles the complete container process inventory until two scans are clean.
+Any late process makes cleanup fail closed; the helper does not signal it
+because it cannot distinguish a workload fork from a concurrent administrative
+exec. On preflight failure it attempts to resume every process it
+stopped; after TERM delivery starts or becomes uncertain it never resumes a
+partially terminated workload. It requires Linux and Python with pidfd support.
+Do not weaken a failed guard.
+
+Termination is irreversible; recovery is a new build from reviewed source, never
+resumption of a partially terminated compiler tree. Retain the helper commit,
+identity evidence and receipt in protected operator storage.
+
+## Verification and retry
+
+Independently enumerate the complete `/proc` process inventory in the **same
+terminal container** and require that no live process remains other than PID 1
+and the checking intercept's own process tree: the shell or command it started
+(`$$` in a shell) and that process's descendants, identified by ancestry, never
+by name. A workload process cannot be reparented under that tree. Do not rely
+on command names or descendants of the original Kaniko PID: a late fork can
+change both its name and parent. Zombies are
+exited processes, not active compilation. Recheck that no publication occurred
+and that no newer build is active. Only then unpause and trigger at most one clean
+retry; first check whether normal scheduling already created it.
+
+Monitor the retry using `fly watch`, build status and resource APIs only. Do not
+intercept a running build: Concourse 8.3.0 stores a container-wide exit status,
+which can obscure a missing task's result during reattachment. This is a risk,
+not proof of the cause of any particular reinitialization. Missing archive or
+digest evidence must continue to block publication. Stop again on uncertainty.
+
+## Local validation
+
+```sh
+python3 -m unittest discover -s tests -p 'test_orphan_cleanup.py'
+python3 -m coverage run --branch --source=ci/ops -m unittest discover -s tests -p 'test_orphan_cleanup.py'
+python3 -m coverage report --fail-under=100
+```
+
+On Linux x86-64 with Docker, `tests/smoke-cleanup-runtime.sh` stages the pinned
+runtime and stops a real orphaned Kaniko build in the exact pinned task image.
+
+The unit tests simulate Linux process primitives; they do not prove a production
+cleanup. Record actual process exit and independent post-cleanup evidence too.
