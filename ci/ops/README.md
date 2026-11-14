@@ -23,6 +23,46 @@ container, modify image contents, publish an image, or restart a build.
 4. Recheck the external build/container identity immediately before cleanup.
    Keep other candidate jobs paused. Stop if the container or source changed.
 
+## Stage the cleanup runtime
+
+The build task runs the pinned `gcr.io/kaniko-project/executor:v1.24.0-debug`
+image, which has BusyBox but no Python. Do not use a `python3` that the build
+may have unpacked from its target rootfs: it may be missing, from a different
+stage, or untrusted. Instead, stage the fully static musl CPython pinned in
+[`cleanup-runtime.json`](cleanup-runtime.json) (python-build-standalone,
+x86-64; Python 3.11+ with pidfd support is required). BusyBox has no zstd and
+upstream publishes the static build only as `.tar.zst`, so it is repacked into
+a reproducible plain tar first.
+
+1. On a trusted operator machine with `zstd`, download `upstream_url`, then run
+   [`build-cleanup-runtime.py`](build-cleanup-runtime.py) on it. The script
+   verifies `upstream_sha256`, keeps only the interpreter and standard library
+   (without `test/` and `config-*/`), writes fixed metadata, and refuses any
+   output that does not match `runtime_sha256`.
+2. Stream that tar into the retained container with the reviewed
+   [`stage-cleanup-runtime.sh`](stage-cleanup-runtime.sh), passing its exact
+   bytes to the image's BusyBox shell. The script verifies `runtime_sha256`
+   again inside the container with BusyBox `sha256sum`, unpacks to
+   `/kaniko/orphan-cleanup-runtime`, and checks the interpreter version and
+   pidfd support. On any failure it removes the partial runtime. It refuses
+   to overwrite an existing runtime. `/kaniko` is excluded from Kaniko
+   snapshots, so staging there cannot change image layers.
+
+```python
+runtime = json.loads(Path("ci/ops/cleanup-runtime.json").read_text())
+stage = Path("ci/ops/stage-cleanup-runtime.sh").read_text()
+with open(built_runtime_tar, "rb") as archive:
+    subprocess.run([
+        "fly", "-t", target, "intercept", "--handle", container_id, "--",
+        "/busybox/sh", "-c", stage, "stage", runtime["runtime_sha256"],
+    ], stdin=archive, check=True)
+```
+
+Staging must finish before cleanup starts: any concurrent intercept is an
+unrelated live process, and the helper fails closed on it. The
+[smoke test](../../tests/smoke-cleanup-runtime.sh) runs this staging and the
+cleanup below against a real orphaned Kaniko build in the exact pinned image.
+
 ## Cleanup
 
 Use the reviewed helper's exact source bytes as Python's `-c` argument (or a
@@ -33,8 +73,8 @@ For example, from a trusted local Python operator session:
 source = Path("ci/ops/stop-orphaned-image-build.py").read_text()
 subprocess.run([
     "fly", "-t", target, "intercept", "--handle", container_id, "--",
-    "/usr/bin/python3", "-c", source, "--apply", str(pid), str(start),
-    command_sha256, working_directory,
+    "/kaniko/orphan-cleanup-runtime/python/bin/python3", "-I", "-c", source,
+    "--apply", str(pid), str(start), command_sha256, working_directory,
 ], check=True)
 ```
 
@@ -81,6 +121,9 @@ python3 -m unittest discover -s tests -p 'test_orphan_cleanup.py'
 python3 -m coverage run --branch --source=ci/ops -m unittest discover -s tests -p 'test_orphan_cleanup.py'
 python3 -m coverage report --fail-under=100
 ```
+
+On Linux x86-64 with Docker, `tests/smoke-cleanup-runtime.sh` stages the pinned
+runtime and stops a real orphaned Kaniko build in the exact pinned task image.
 
 The unit tests simulate Linux process primitives; they do not prove a production
 cleanup. Record actual process exit and independent post-cleanup evidence too.

@@ -342,6 +342,133 @@ class PrimitiveTests(unittest.TestCase):
                 self.assertEqual(mod.pending([5],1),{5})
 
 
+class CleanupRuntimePinTests(unittest.TestCase):
+    def test_runtime_pin_is_consistent(self):
+        import json
+        pin = json.loads((SCRIPT.parent / 'cleanup-runtime.json').read_text())
+        self.assertEqual(set(pin), {'python', 'release', 'upstream_url', 'upstream_sha256', 'runtime_sha256'})
+        for key in ('upstream_sha256', 'runtime_sha256'):
+            self.assertRegex(pin[key], r'^[0-9a-f]{64}$')
+        self.assertGreaterEqual(tuple(int(part) for part in pin['python'].split('.'))[:2], (3, 11))
+        self.assertEqual(
+            pin['upstream_url'],
+            'https://github.com/astral-sh/python-build-standalone/releases/download/'
+            f"{pin['release']}/cpython-{pin['python']}%2B{pin['release']}"
+            '-x86_64-unknown-linux-musl-lto%2Bstatic-full.tar.zst')
+        self.assertIn('/kaniko/orphan-cleanup-runtime', (SCRIPT.parent / 'stage-cleanup-runtime.sh').read_text())
+        readme = (SCRIPT.parent / 'README.md').read_text()
+        self.assertIn('/kaniko/orphan-cleanup-runtime/python/bin/python3', readme)
+        self.assertIn('runtime["runtime_sha256"]', readme)
+
+
+BUILD = SCRIPT.parent / 'build-cleanup-runtime.py'
+build_spec = importlib.util.spec_from_file_location('build_runtime', BUILD)
+build_mod = importlib.util.module_from_spec(build_spec)
+build_spec.loader.exec_module(build_mod)
+
+
+def upstream_tar(extra=(), drop=()):
+    import tarfile
+    stream = io.BytesIO()
+    with tarfile.open(fileobj=stream, mode='w') as archive:
+        def add(name, data=b'', mode=0o644, kind=tarfile.REGTYPE, link=''):
+            if name in drop:
+                return
+            info = tarfile.TarInfo(name)
+            info.type, info.mode, info.linkname, info.mtime, info.uid = kind, mode, link, 12345, 1000
+            info.size = len(data) if kind == tarfile.REGTYPE else 0
+            archive.addfile(info, io.BytesIO(data) if kind == tarfile.REGTYPE else None)
+        add('python/install', kind=tarfile.DIRTYPE, mode=0o700)
+        add('python/install/bin/python3.13', b'ELF', 0o750)
+        add('python/install/bin/python3', kind=tarfile.SYMTYPE, link='python3.13')
+        add('python/install/bin/pip3', b'#!pip', 0o755)
+        add('python/install/lib/python3.13/os.py', b'# os')
+        add('python/install/lib/python3.13/json/__init__.py', b'# json')
+        add('python/install/lib/python3.13/test/test_os.py', b'# test')
+        add('python/install/lib/python3.13/config-3.13-x86_64-linux-musl/libpython.a', b'ar')
+        add('python/install/include/python3.13/Python.h', b'h')
+        add('python/build/notes.txt', b'n')
+        for item in extra:
+            add(*item)
+    stream.seek(0)
+    return stream
+
+
+class BuildCleanupRuntimeTests(unittest.TestCase):
+    def repack(self, source):
+        import tarfile
+        output = io.BytesIO()
+        with tarfile.open(fileobj=source, mode='r|') as upstream:
+            build_mod.repack(upstream, output, '3.13')
+        output.seek(0)
+        return output
+
+    def test_repack_selects_runtime_with_fixed_metadata(self):
+        import tarfile
+        first = self.repack(upstream_tar()).getvalue()
+        self.assertEqual(first, self.repack(upstream_tar()).getvalue())
+        with tarfile.open(fileobj=io.BytesIO(first)) as archive:
+            members = {member.name: member for member in archive.getmembers()}
+        self.assertEqual(list(members), sorted(members))
+        self.assertEqual(set(members), {
+            'python', 'python/bin', 'python/bin/python3', 'python/bin/python3.13',
+            'python/lib', 'python/lib/python3.13', 'python/lib/python3.13/json',
+            'python/lib/python3.13/json/__init__.py', 'python/lib/python3.13/os.py'})
+        self.assertTrue(members['python/lib'].isdir())
+        self.assertEqual(members['python/bin/python3'].linkname, 'python3.13')
+        self.assertEqual(members['python/bin/python3.13'].mode, 0o755)
+        self.assertEqual(members['python/lib/python3.13/os.py'].mode, 0o644)
+        self.assertEqual({(m.mtime, m.uid, m.gid, m.uname) for m in members.values()}, {(0, 0, 0, '')})
+
+    def test_repack_rejects_unexpected_or_incomplete_input(self):
+        import tarfile
+        with self.assertRaisesRegex(RuntimeError, 'unexpected member type'):
+            self.repack(upstream_tar(extra=[('python/install/lib/python3.13/fifo', b'', 0o644, tarfile.FIFOTYPE)]))
+        for missing in ('python/install/bin/python3.13', 'python/install/bin/python3',
+                        'python/install/lib/python3.13/os.py'):
+            with self.assertRaisesRegex(RuntimeError, 'missing'):
+                self.repack(upstream_tar(drop={missing}))
+
+    def test_build_verifies_both_digests_and_zstd(self):
+        payload = upstream_tar().getvalue()
+        expected = hashlib.sha256(self.repack(upstream_tar()).getvalue()).hexdigest()
+        with tempfile.TemporaryDirectory() as directory:
+            upstream = Path(directory) / 'upstream.tar.zst'
+            upstream.write_bytes(b'compressed')
+            output = Path(directory) / 'runtime.tar'
+            pin = {'python': '3.13.18', 'upstream_sha256': hashlib.sha256(b'compressed').hexdigest(),
+                   'runtime_sha256': expected}
+
+            def fake_zstd(command, stdout):
+                self.assertEqual(command, ['zstd', '-dc', str(upstream)])
+                process = Mock()
+                process.__enter__ = Mock(return_value=process)
+                process.__exit__ = Mock(return_value=False)
+                process.stdout = io.BytesIO(payload)
+                process.returncode = fake_zstd.returncode
+                return process
+            fake_zstd.returncode = 0
+            with patch.object(build_mod.subprocess, 'Popen', side_effect=fake_zstd):
+                self.assertEqual(build_mod.build(upstream, output, pin), expected)
+                with self.assertRaisesRegex(RuntimeError, 'runtime_sha256'):
+                    build_mod.build(upstream, output, dict(pin, runtime_sha256='0' * 64))
+                fake_zstd.returncode = 1
+                with self.assertRaisesRegex(RuntimeError, 'zstd failed'):
+                    build_mod.build(upstream, output, pin)
+            with self.assertRaisesRegex(RuntimeError, 'upstream_sha256'):
+                build_mod.build(upstream, output, dict(pin, upstream_sha256='0' * 64))
+
+    def test_main_usage_and_default_pin(self):
+        with patch.object(sys, 'argv', [str(BUILD)]), self.assertRaises(SystemExit):
+            runpy.run_path(str(BUILD), run_name='__main__')
+        with tempfile.TemporaryDirectory() as directory:
+            upstream = Path(directory) / 'upstream.tar.zst'
+            upstream.write_bytes(b'not the pinned upstream')
+            with patch.object(sys, 'argv', [str(BUILD), str(upstream), str(Path(directory) / 'out.tar')]), \
+                    self.assertRaisesRegex(RuntimeError, 'upstream_sha256'):
+                runpy.run_path(str(BUILD), run_name='__main__')
+
+
 @unittest.skipUnless(hasattr(os, 'pidfd_open') and hasattr(signal, 'pidfd_send_signal'),
                      'Linux pidfds required')
 class LinuxProcessIntegrationTests(unittest.TestCase):
