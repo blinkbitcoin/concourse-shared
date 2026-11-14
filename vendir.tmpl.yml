@@ -50,4 +50,3 @@ directories:
     - shared/bin/**/docker-*
     - shared/bin/**/tofu-*
     newRootPath: shared/bin
-

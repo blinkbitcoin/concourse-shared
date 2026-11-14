@@ -66,7 +66,11 @@ rename -f 's/^tofu-//' *
 popd
 
 echo "    --> Copying dependabot config"
-mv ci/vendor/config/*-dependabot.yml .github/dependabot.yml || true
+# Copy, do not move: ci/vendor must stay an exact vendir snapshot of ci/vendir.yml.
+for dependabot_config in ci/vendor/config/*-dependabot.yml; do
+  [[ -f "${dependabot_config}" ]] || continue
+  cp "${dependabot_config}" .github/dependabot.yml
+done
 
 if [[ ! -f ./typos.toml ]]; then
   cat <<EOF > typos.toml
