@@ -46,9 +46,10 @@ cleanup() {
     wait "$active_pid" 2>/dev/null || true
   fi
   # Only this function may write the receipt; drop anything written earlier
-  # (repository code runs in this task before the host is contacted).
-  rm -f host-cleanup/metadata host-cleanup/metadata.tmp
-  local confirmed=
+  # (repository code runs in this task before the host is contacted). A path
+  # that cannot be removed must not stop the remote cleanup below.
+  local confirmed='' stale=''
+  rm -rf -- host-cleanup/metadata host-cleanup/metadata.tmp 2>/dev/null || stale=1
   if [[ -n $run_dir ]]; then
     if bounded 60s "${ssh[@]}" "bash -s -- $run_dir" < "$tasks/ssh-host-remote-cleanup.sh"; then
       confirmed=1
@@ -60,7 +61,10 @@ cleanup() {
     echo 'Failed before contacting the SSH host; releasing the claim' >&2
     confirmed=1
   fi
-  if [[ -n $confirmed ]]; then
+  if [[ -n $confirmed && -n $stale ]]; then
+    echo 'Could not remove an earlier cleanup receipt; retain host claim' >&2
+    [[ $status != 0 ]] || status=1
+  elif [[ -n $confirmed ]]; then
     if ! { cp "$metadata" host-cleanup/metadata.tmp &&
            mv host-cleanup/metadata.tmp host-cleanup/metadata; }; then
       echo 'Could not record SSH cleanup; retain host claim' >&2

@@ -93,7 +93,8 @@ class Transport(unittest.TestCase):
         # Records the call and whether any secret file already existed on disk.
         script(binary / "make", 'printf "%s %s\\n" "$PWD" "$*" >> "$MAKE_CALLS"\n'
                                 'ls -A "$TMPDIR" >> "$MAKE_CALLS"\n'
-                                '[[ -z ${MAKE_PLANT:-} ]] || cp ../zrh1-docker-host/metadata ../host-cleanup/metadata\n'
+                                'if [[ ${MAKE_PLANT:-} == file ]]; then cp ../zrh1-docker-host/metadata ../host-cleanup/metadata;'
+                                ' elif [[ ${MAKE_PLANT:-} == dir ]]; then mkdir -p ../host-cleanup/metadata/x; fi\n'
                                 'exit "${MAKE_STATUS:-0}"')
         self.log = self.root / "calls"
         key = self.root / "fixture.pem"
@@ -249,11 +250,17 @@ class Transport(unittest.TestCase):
         # make runs repository code in this task; only cleanup may write the receipt.
         self.assertEqual(self.invoke(SSH_HOST_MODE="compose", TEST_CONTAINER="integration-tests").returncode, 0)
         cleanup = len(self.calls()) - 1
-        result = self.invoke(SSH_HOST_MODE="compose", TEST_CONTAINER="integration-tests", MAKE_PLANT="1",
+        result = self.invoke(SSH_HOST_MODE="compose", TEST_CONTAINER="integration-tests", MAKE_PLANT="file",
                              FAIL=str(cleanup))
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("cleanup failed", result.stderr)
         self.assertFalse((self.root / "host-cleanup/metadata").exists())
+        # A planted directory must not stop the remote cleanup; the confirmed
+        # cleanup then replaces it with the real receipt.
+        result = self.invoke(SSH_HOST_MODE="compose", TEST_CONTAINER="integration-tests", MAKE_PLANT="dir")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.calls()[-1]["input"], CLEANUP)
+        self.assertTrue(self.released())
 
     def test_missing_client_dependencies_refuse_before_remote_access(self):
         # Do not let tools installed on the test runner hide an incomplete image.

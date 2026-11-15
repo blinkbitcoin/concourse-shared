@@ -107,7 +107,8 @@ class Fragments(unittest.TestCase):
 
     def test_reserved_or_invalid_additional_params_fail_render(self):
         # ssh-host-run.sh refuses these too; failing at render keeps hosts unclaimed.
-        for key in ["PACKAGE_DIR", "CMD", "PATH", "DOCKER_CONFIG", "LD_PRELOAD", "bad-name", "1ABC"]:
+        for key in ["PACKAGE_DIR", "CMD", "PATH", "DOCKER_CONFIG", "LD_PRELOAD", "bad-name", "1ABC",
+                    "WORKLOAD_TIMEOUT_MINUTES", "SSH_HOST_MODE", "PARAMS_KEYS", "GOOGLE_CREDENTIALS"]:
             with self.subTest(key=key):
                 pipeline = CONSUMER.replace('{"RAIN_API_KEY": "((rain.key))"}', '{"%s": "x"}' % key)
                 result = self.render(pipeline)
@@ -115,7 +116,15 @@ class Fragments(unittest.TestCase):
                 self.assertIn("additional_params key", result.stderr)
                 pipeline = CONSUMER.replace('test_on_zrh1_docker_host("compose-tests")',
                                             'test_on_zrh1_docker_host("compose-tests", {"%s": "x"})' % key)
-                self.assertNotEqual(self.render(pipeline).returncode, 0)
+                result = self.render(pipeline)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("additional_params key", result.stderr)
+        # The compose fragment sets JEST_TIMEOUT; the nix fragment does not.
+        pipeline = CONSUMER.replace('test_on_zrh1_docker_host("compose-tests")',
+                                    'test_on_zrh1_docker_host("compose-tests", {"JEST_TIMEOUT": "1"})')
+        self.assertIn("reserved additional_params key: JEST_TIMEOUT", self.render(pipeline).stderr)
+        pipeline = CONSUMER.replace('{"RAIN_API_KEY": "((rain.key))"}', '{"JEST_TIMEOUT": "1"}')
+        self.assertEqual(self.render(pipeline).returncode, 0)
 
     def test_invalid_workload_timeout_fails_render(self):
         for value in ["0", "1000", '"12"']:

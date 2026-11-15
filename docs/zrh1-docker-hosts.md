@@ -37,8 +37,9 @@ What the job does:
   rendered to `tmp.env.ci` with `envsubst` (nix mode), or
   `make create-tmp-env-ci` runs (compose mode). The SSH key and service-account
   JSON are unset first, so they are neither inherited nor substituted into
-  these files. Repository code running as the same user can still read the
-  task's initial environment from `/proc`, as it could on the GCP path.
+  these files. Repository code is trusted as on the GCP path: running as the
+  same user, it can still read the task's initial environment from `/proc`,
+  and a process it leaves running could write the cleanup receipt.
 - Removes all containers and the previous copy of the repository on the host
   (with `sudo`, because Docker bind mounts leave root-owned files), then copies
   the repository with `rsync`.
@@ -49,9 +50,11 @@ What the job does:
   lines or logs, and the file is deleted by cleanup. Values the repository
   renders itself (for example into `tmp.env.ci`) stay in the repository copy
   on the host until that job's next run removes it, as on the GCP hosts.
-  `additional_params` keys must be shell variable names and must not be one
-  of the names the transport sets (`PATH`, `HOME`, `CMD`, `PACKAGE_DIR`,
-  `DOCKER_CONFIG`, `LD_*` and others); the pipeline fails to render otherwise.
+  `additional_params` keys must be shell variable names. Names the transport
+  or the fragment sets itself (`PATH`, `HOME`, `CMD`, `PACKAGE_DIR`,
+  `DOCKER_CONFIG`, `LD_*`, `PARAMS_KEYS`, `WORKLOAD_TIMEOUT_MINUTES`, the
+  credential params, `JEST_TIMEOUT` in compose mode and others) fail the
+  render instead of being silently replaced.
 - Runs the workload under a remote supervisor with a hard limit of
   `workload_timeout_minutes`:
   - nix mode: `nix develop -c bash -c "$CMD"` in the repository;
