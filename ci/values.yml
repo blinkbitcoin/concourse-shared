@@ -19,7 +19,7 @@ git_org_uri: git@github.com:blinkbitcoin
 pr_branch: bump-shared-tasks
 source_repo_branch: main
 
-enable_shared_file_updates: false
+enable_shared_file_updates: true
 
 src_repos:
   mavapay-client: ["nodejs"]

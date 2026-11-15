@@ -112,6 +112,19 @@ adoption gate until the owning pipeline has run. The release Python 3.11/Bookwor
 a candidate until downstream release jobs qualify it. No compatibility
 promotion is automated. A separate reviewed promotion may move `latest`.
 
-Shared-file propagation is disabled by default, including its generated jobs
-and repository resources. Each source owner must authorize activation before
-`enable_shared_file_updates` is enabled in a separate change.
+Shared-file propagation is controlled by `enable_shared_file_updates`, including
+its generated jobs and repository resources. It was disabled during the trust
+image rollout and re-enabled in a separate, owner-authorized change. While it is
+on, every change under `shared/` or to `vendir.tmpl.yml` on `main` replaces the
+bump PR in every consumer (closes the open one and opens a new one). To stop
+that, turn the flag off and repipe before such a change merges; the flag has no
+effect until the pipeline is set.
+
+Each `bump-shared-files-in-*` job is serial and runs `bump-shared-files.sh` and
+`open-pr.sh` from the triggering `shared-files` commit, so a bump PR always
+matches one concourse-shared revision. A change to those scripts alone does not
+trigger a bump; it applies with the next `shared/` or `vendir.tmpl.yml` change,
+or when the jobs are triggered by hand. `open-source-pr` retries 3 times. If it
+still fails, the consumer's `bump-shared-tasks` branch is updated but may have
+no open PR: rerun that consumer's job with
+`fly -t ciblink trigger-job --team dev -j blink-concourse-shared/bump-shared-files-in-<repo>`.
