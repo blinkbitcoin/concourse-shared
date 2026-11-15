@@ -6,9 +6,9 @@ GCP `docker-hosts` pool (`galoy-staging/docker-host-0` and `docker-host-1`),
 which is reached with `gcloud compute ssh --tunnel-through-iap` and cannot use
 the ZRH1 hosts.
 
-The transport was first built for blink core/apps
-(blinkbitcoin/blink-legacy#926) and is maintained here so every consumer can
-vendor it. The four hosts are provisioned in `zrh1-infra`
+The transport was first built for blink core/apps in
+blinkbitcoin/blink-legacy#926, which was closed unmerged in favour of this
+copy; it is maintained here so every consumer can vendor it. The four hosts are provisioned in `zrh1-infra`
 (`docs/operations/docker-host-vms.md`).
 
 ## Fragments
@@ -25,7 +25,9 @@ every consumer has moved; the GCP set is removed with the GCP hosts.
 
 What the job does:
 
-- Claims one host, then runs once (`attempts: 1`) on an untagged Linux worker.
+- Fetches `repo` and `pipeline-tasks` first, then claims one host and runs
+  once (`attempts: 1`) on an untagged Linux worker. Fetching first means a
+  failed `get` cannot leave a claim behind.
   Only workers in the ZRH1 VM cluster can reach the hosts' private Service
   addresses, so the `galoy-staging` tag is gone.
 - Verifies the host metadata (private RFC1918 address, pinned Ed25519 host
@@ -34,7 +36,9 @@ What the job does:
 - Prepares the repository on the worker as the GCP tasks did: `.env.ci` is
   rendered to `tmp.env.ci` with `envsubst` (nix mode), or
   `make create-tmp-env-ci` runs (compose mode). The SSH key and service-account
-  JSON are unset first, so they can never be substituted into these files.
+  JSON are unset first, so they are neither inherited nor substituted into
+  these files. Repository code running as the same user can still read the
+  task's initial environment from `/proc`, as it could on the GCP path.
 - Removes all containers and the previous copy of the repository on the host
   (with `sudo`, because Docker bind mounts leave root-owned files), then copies
   the repository with `rsync`.
@@ -42,15 +46,24 @@ What the job does:
   `devstorage.read_only`. The service-account JSON never leaves the worker.
 - Sends `additional_params` (listed in `PARAMS_KEYS`) to the host as a private
   file in the per-run directory, over SSH stdin. Values never appear in command
-  lines or logs, and the file is deleted by cleanup.
+  lines or logs, and the file is deleted by cleanup. Values the repository
+  renders itself (for example into `tmp.env.ci`) stay in the repository copy
+  on the host until that job's next run removes it, as on the GCP hosts.
+  `additional_params` keys must be shell variable names and must not be one
+  of the names the transport sets (`PATH`, `HOME`, `CMD`, `PACKAGE_DIR`,
+  `DOCKER_CONFIG`, `LD_*` and others); the pipeline fails to render otherwise.
 - Runs the workload under a remote supervisor with a hard limit of
   `workload_timeout_minutes`:
   - nix mode: `nix develop -c bash -c "$CMD"` in the repository;
   - compose mode: `docker compose pull`, `up <container> --attach <container>`,
-    the test container's exit status, then `docker compose down`.
+    the test container's exit status (found by its compose project and
+    service labels), then `docker compose down`, which also runs after a
+    workload timeout. A cancelled build does not run it; the next claim
+    removes all containers before it starts.
 - Cleans up the remote process group and credentials, then writes a cleanup
-  receipt. The task timeout is the workload limit plus 10 minutes, so a
-  workload timeout still leaves time for cleanup.
+  receipt. The task timeout is the workload limit plus 25 minutes, more than
+  the sum of every bounded transport step, so a workload timeout still leaves
+  time for cleanup.
 
 ## Release gate and quarantine
 
@@ -58,18 +71,26 @@ The job's `ensure` step runs `ssh-host-check-cleanup.sh` before releasing the
 host. It releases only when the cleanup receipt matches the claimed metadata.
 A workload failure with confirmed cleanup releases the host normally.
 
-Failed cleanup, cancellation without a receipt, or a failure before the run
-directory exists keeps the claim. That host is quarantined: no other job can
-take it. Before releasing it:
+A failure before the first SSH command (invalid job input, a reserved or
+malformed `PARAMS_KEYS` entry, a broken service-account key) never touched the
+host, so the task writes the receipt and the host is released. Invalid claim
+metadata or a task image without the required clients keeps the claim.
+
+Failed cleanup, cancellation without a receipt, or a failure after the first
+SSH command but before the run directory exists keeps the claim. That host is
+quarantined: no other job can take it. Before releasing it:
 
 1. Identify the exact host and build from the failed build log.
 2. On that host, confirm no workload from that run is still running
    (`.ci-run/run.*/runner.pid`, `ps -eo pid,pgid,stat,args`), and stop it if so.
 3. Delete the run's `docker` directory and `env` file if present.
 4. Keep the failed build and the run directory as evidence.
-5. Release that exact claim through the pool resource. Do not edit the locks
-   repository by hand, release a claim you have not inspected, or move an
-   entry into the GCP pool.
+5. Release that exact claim. No job in this repository does it, so make the
+   same change the pool resource's `release` makes: in
+   `blinkbitcoin/concourse-locks`, one commit that runs
+   `git mv zrh1-docker-hosts/claimed/<host> zrh1-docker-hosts/unclaimed/<host>`
+   and names the failed build. Do not touch any other entry, release a claim
+   you have not inspected, or move an entry into the GCP pool.
 
 ## Migrating a consumer
 
@@ -89,7 +110,10 @@ One pull request per consumer repository, so each can be reverted on its own.
    ```
 
    Repositories with their own copy of `run_on_nix_host` (stablesats-rs,
-   blink-fiat, blink-kyc) delete it and use the shared fragment.
+   blink-fiat, blink-kyc, blink-routing) delete it and use the shared fragment.
+   Pass any variable their copy exported on the host as `additional_params`
+   (blink-routing exports `DOCKER_API_VERSION`; check that the ZRH1 Docker
+   daemon still accepts that API version before keeping it).
    Set `workload_timeout_minutes` if a job needs more than the default.
 3. Render with `ytt -f ci` and compare against the live pipeline
    (`fly get-pipeline`). Only the migrated jobs and the new resource should
@@ -115,7 +139,9 @@ token).
   admitted by the `zrh1-docker-host-qualification` pipeline, whose source is
   on the `ci/zrh1-docker-transport` branch of blinkbitcoin/blink-legacy at
   `d985b9a` (`ci/shared/`). Port it here before adding hosts.
-- blink core/apps still use their own copy of this transport.
+- blink core/apps do not use these fragments yet. Their live pipelines run the
+  #926 copy of this transport from the same blink-legacy branch; moving them
+  here is follow-up work.
 
 ## Tests
 

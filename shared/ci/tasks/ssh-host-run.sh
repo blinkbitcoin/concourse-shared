@@ -16,11 +16,87 @@ rm -f host-cleanup/metadata host-cleanup/metadata.tmp
 
 fail() { echo "SSH Docker host task failed: $1" >&2; exit 1; }
 metadata=zrh1-docker-host/metadata
+tasks=$(cd -- "$(dirname -- "$0")" && pwd)
+root=
+run_dir=
+active_pid=
+# Set once the claimed metadata is valid, cleared just before the first SSH
+# command. Failures in between never touched the host, so they release it.
+untouched=
+
+# A background timeout lets Bash handle cancellation immediately while wait
+# is interrupted. GNU timeout also bounds descendants after TERM with KILL.
+bounded() {
+  local duration=$1 status=0
+  shift
+  timeout --kill-after=15s "$duration" "$@" <&0 &
+  active_pid=$!
+  wait "$active_pid" || status=$?
+  active_pid=
+  return "$status"
+}
+
+# shellcheck disable=SC2317,SC2329 # Invoked by the EXIT trap.
+cleanup() {
+  local status=$?
+  trap - EXIT
+  trap '' HUP INT TERM
+  if [[ -n $active_pid ]]; then
+    kill -TERM "$active_pid" 2>/dev/null || true
+    wait "$active_pid" 2>/dev/null || true
+  fi
+  # Only this function may write the receipt; drop anything written earlier
+  # (repository code runs in this task before the host is contacted).
+  rm -f host-cleanup/metadata host-cleanup/metadata.tmp
+  local confirmed=
+  if [[ -n $run_dir ]]; then
+    if bounded 60s "${ssh[@]}" "bash -s -- $run_dir" < "$tasks/ssh-host-remote-cleanup.sh"; then
+      confirmed=1
+    else
+      echo 'SSH Docker host cleanup failed; inspect host before reuse' >&2
+      [[ $status != 0 ]] || status=1
+    fi
+  elif [[ -n $untouched ]]; then
+    echo 'Failed before contacting the SSH host; releasing the claim' >&2
+    confirmed=1
+  fi
+  if [[ -n $confirmed ]]; then
+    if ! { cp "$metadata" host-cleanup/metadata.tmp &&
+           mv host-cleanup/metadata.tmp host-cleanup/metadata; }; then
+      echo 'Could not record SSH cleanup; retain host claim' >&2
+      [[ $status != 0 ]] || status=1
+    fi
+  fi
+  [[ -z $root ]] || rm -rf -- "$root"
+  exit "$status"
+}
+trap cleanup EXIT
+trap 'exit 143' TERM
+trap 'exit 130' INT
+trap 'exit 129' HUP
 
 # Fail before host access when the task image lacks a required client.
 for dependency in jq openssl curl ssh rsync timeout envsubst; do
   command -v "$dependency" >/dev/null 2>&1 || fail "task image is missing $dependency"
 done
+
+# Validate before extracting: jq -r must not hide trailing newlines or coerce
+# nonstrings. Only canonical RFC1918 IPv4 addresses are accepted.
+jq -se '
+  length == 1 and (.[0] |
+  .transport == "ssh" and
+  (.docker_host_name | type == "string" and test("^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\z")) and
+  (.ssh_host_key | type == "string" and test("^ssh-ed25519 [A-Za-z0-9+/]+={0,2}\\z")) and
+  (.ssh_host | type == "string" and test("^(0|[1-9][0-9]{0,2})(\\.(0|[1-9][0-9]{0,2})){3}\\z") and
+    (split(".") | map(tonumber) | all(. <= 255) and
+      (.[0] == 10 or (.[0] == 172 and .[1] >= 16 and .[1] <= 31) or
+       (.[0] == 192 and .[1] == 168)))))
+' "$metadata" >/dev/null 2>&1 || fail 'invalid host metadata'
+name=$(jq -r '.docker_host_name' "$metadata")
+host=$(jq -r '.ssh_host' "$metadata")
+host_key=$(jq -r '.ssh_host_key' "$metadata")
+echo "Running on ZRH1 Docker host: $name"
+untouched=1
 
 # REPO_PATH is removed on the host before each copy: one plain path component.
 repo=${REPO_PATH:-}
@@ -47,7 +123,8 @@ esac
 # Names the transport or the remote supervisor relies on cannot be overridden.
 param_keys=()
 read -r -a requested_keys <<< "${PARAMS_KEYS:-}"
-for key in "${requested_keys[@]}"; do
+# The ${a[@]+...} form keeps an empty list valid under set -u in Bash 3.2.
+for key in ${requested_keys[@]+"${requested_keys[@]}"}; do
   [[ $key =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || fail 'invalid PARAMS_KEYS entry'
   case $key in
     PATH|HOME|SHELL|IFS|ENV|BASH_ENV|TMPDIR|LD_*|CI_RUN_DIR|CI_MODE|CI_TIMEOUT|REPO_PATH|PACKAGE_DIR|CMD|TEST_CONTAINER|DOCKER_CONFIG)
@@ -56,26 +133,10 @@ for key in "${requested_keys[@]}"; do
   param_keys+=("$key")
 done
 
-# Validate before extracting: jq -r must not hide trailing newlines or coerce
-# nonstrings. Only canonical RFC1918 IPv4 addresses are accepted.
-jq -se '
-  length == 1 and (.[0] |
-  .transport == "ssh" and
-  (.docker_host_name | type == "string" and test("^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\z")) and
-  (.ssh_host_key | type == "string" and test("^ssh-ed25519 [A-Za-z0-9+/]+={0,2}\\z")) and
-  (.ssh_host | type == "string" and test("^(0|[1-9][0-9]{0,2})(\\.(0|[1-9][0-9]{0,2})){3}\\z") and
-    (split(".") | map(tonumber) | all(. <= 255) and
-      (.[0] == 10 or (.[0] == 172 and .[1] >= 16 and .[1] <= 31) or
-       (.[0] == 192 and .[1] == 168)))))
-' "$metadata" >/dev/null 2>&1 || fail 'invalid host metadata'
-name=$(jq -r '.docker_host_name' "$metadata")
-host=$(jq -r '.ssh_host' "$metadata")
-key=$(jq -r '.ssh_host_key' "$metadata")
-echo "Running on ZRH1 Docker host: $name"
-
 # Repository preparation runs on the worker, as on the GCP hosts, and before
-# any secret is written to disk: transport credentials are already unset, so
-# repository code can neither read their files nor substitute them.
+# any secret is written to disk. The transport credentials are unset, so they
+# are neither inherited nor substituted. Same-user code can still read this
+# process's initial environment in /proc, as it could on the GCP path.
 if [[ $mode == nix ]]; then
   if [[ -f $repo/.env.ci ]]; then
     envsubst < "$repo/.env.ci" > "$repo/tmp.env.ci"
@@ -84,55 +145,12 @@ else
   (cd "$repo" && make create-tmp-env-ci) || true
 fi
 
-tasks=$(cd -- "$(dirname -- "$0")" && pwd)
 root=$(mktemp -d "${TMPDIR:-/tmp}/ssh-host-ci.XXXXXXXX")
-run_dir=
-active_pid=
-
-# A background timeout lets Bash handle cancellation immediately while wait
-# is interrupted. GNU timeout also bounds descendants after TERM with KILL.
-bounded() {
-  local duration=$1 status=0
-  shift
-  timeout --kill-after=15s "$duration" "$@" <&0 &
-  active_pid=$!
-  wait "$active_pid" || status=$?
-  active_pid=
-  return "$status"
-}
-
-# shellcheck disable=SC2317,SC2329 # Invoked by the EXIT trap.
-cleanup() {
-  local status=$?
-  trap - EXIT
-  trap '' HUP INT TERM
-  if [[ -n $active_pid ]]; then
-    kill -TERM "$active_pid" 2>/dev/null || true
-    wait "$active_pid" 2>/dev/null || true
-  fi
-  if [[ -n $run_dir ]]; then
-    if ! bounded 60s "${ssh[@]}" "bash -s -- $run_dir" < "$tasks/ssh-host-remote-cleanup.sh"; then
-      echo 'SSH Docker host cleanup failed; inspect host before reuse' >&2
-      [[ $status != 0 ]] || status=1
-    else
-      if ! { cp "$metadata" host-cleanup/metadata.tmp &&
-             mv host-cleanup/metadata.tmp host-cleanup/metadata; }; then
-        echo 'Could not record SSH cleanup; retain host claim' >&2
-        [[ $status != 0 ]] || status=1
-      fi
-    fi
-  fi
-  rm -rf -- "$root"
-  exit "$status"
-}
-trap cleanup EXIT
-trap 'exit 143' TERM
-trap 'exit 130' INT
-trap 'exit 129' HUP
-
+# mktemp inherits TMPDIR: reject quotes/backslashes before rsync parses -e.
+[[ $root != *[\"\\]* ]] || fail 'unsupported temporary directory'
 printf '%s\n' "$private_key" > "$root/key"
 printf '%s\n' "$google_credentials" > "$root/google.json"
-printf '%s %s\n' "$host" "$key" > "$root/known_hosts"
+printf '%s %s\n' "$host" "$host_key" > "$root/known_hosts"
 unset private_key google_credentials
 # Reject a corrupt secret before SSH. The key's token_uri is not trusted.
 jq -e '.type == "service_account" and (.client_email | type == "string") and (.private_key | type == "string")' \
@@ -145,7 +163,7 @@ grep -qxF -e '-----END PRIVATE KEY-----' "$root/sa.pem" || fail 'invalid service
 
 # Additional job params reach the workload through a private file, never argv.
 : > "$root/env"
-for key in "${param_keys[@]}"; do
+for key in ${param_keys[@]+"${param_keys[@]}"}; do
   if [[ -n ${!key:-} ]]; then
     printf 'export %s=%q\n' "$key" "${!key}" >> "$root/env"
   fi
@@ -156,17 +174,17 @@ options=(ssh -i "$root/key" -o BatchMode=yes -o IdentitiesOnly=yes
   -o ConnectTimeout=15 -o ServerAliveInterval=15 -o ServerAliveCountMax=3)
 ssh=("${options[@]}" "ci@$host")
 
+untouched=
 bounded 60s "${ssh[@]}" "bash -s -- $name" < "$tasks/ssh-host-remote-preflight.sh"
 bounded 60s "${ssh[@]}" 'umask 077; mkdir -p .ci-run; mktemp -d .ci-run/run.XXXXXXXX' > "$root/run-dir"
 candidate=$(cat "$root/run-dir")
 [[ $candidate =~ ^\.ci-run/run\.[A-Za-z0-9]{8}$ ]] || fail 'invalid remote run directory'
 run_dir=$candidate
 # Docker bind mounts can leave root-owned files; the GCP hosts also used sudo.
-bounded 60s "${ssh[@]}" "docker ps -aq | xargs -r docker rm -fv && sudo -n rm -rf -- $repo"
+# Large root-owned build trees can take minutes to delete; same bound as rsync.
+bounded 300s "${ssh[@]}" "docker ps -aq | xargs -r docker rm -fv && sudo -n rm -rf -- $repo"
 # rsync parses -e with its own shell-like tokenizer, not Bash printf %q.
 printf -v rsync_ssh '"%s" ' "${options[@]}"
-# mktemp inherits TMPDIR: reject quotes/backslashes before rsync parses -e.
-[[ $root != *[\"\\]* ]] || fail 'unsupported temporary directory'
 bounded 300s rsync -avr --delete --exclude='buck-out/**' --exclude='**/node_modules/**' \
   --exclude='dev/.data/**' -e "$rsync_ssh" "$repo/" "ci@$host:$repo" > /dev/null
 # Do not use gcloud auth print-access-token. Those stable commands have no
@@ -201,4 +219,4 @@ unset token email signing signature
 # Job params follow the same stdin path into the private run directory.
 bounded 60s "${ssh[@]}" "umask 077; cat > $run_dir/env" < "$root/env"
 printf -v remote_command 'bash -s -- %q %q %q %q %q %q' "$run_dir" "$repo" "$package" "$mode" "$minutes" "$payload"
-bounded "$((minutes * 60 + 100))s" "${ssh[@]}" "$remote_command" < "$tasks/ssh-host-remote-run.sh"
+bounded "$((minutes * 60 + 200))s" "${ssh[@]}" "$remote_command" < "$tasks/ssh-host-remote-run.sh"

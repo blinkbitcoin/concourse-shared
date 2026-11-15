@@ -1,5 +1,6 @@
 #@ load("@ytt:data", "data")
 #@ load("@ytt:assert", "assert")
+#@ load("@ytt:regexp", "regexp")
 #@ def public_docker_registry():
 #@  return "us.gcr.io/galoy-org"
 #@ end
@@ -611,6 +612,21 @@ source:
   private_key: #@ data.values.github_private_key
 #@ end
 
+#! Names ssh-host-run.sh refuses in PARAMS_KEYS. Rejecting them at render time
+#! keeps a pipeline mistake from failing every build on a claimed host.
+#@ def zrh1_check_additional_params(additional_params):
+#@ reserved = ["PATH", "HOME", "SHELL", "IFS", "ENV", "BASH_ENV", "TMPDIR", "CI_RUN_DIR", "CI_MODE", "CI_TIMEOUT",
+#@   "REPO_PATH", "PACKAGE_DIR", "CMD", "TEST_CONTAINER", "DOCKER_CONFIG"]
+#@ for key in additional_params.keys():
+#@   if type(key) != "string" or not regexp.match("^[A-Za-z_][A-Za-z0-9_]*$", key):
+#@     assert.fail("invalid additional_params key: " + str(key))
+#@   end
+#@   if key in reserved or key.startswith("LD_"):
+#@     assert.fail("reserved additional_params key: " + key)
+#@   end
+#@ end
+#@ end
+
 #@ def zrh1_docker_host_job(name, image_resource, params, workload_timeout_minutes, on_failure=None):
 #@ if type(workload_timeout_minutes) != "int" or workload_timeout_minutes < 1 or workload_timeout_minutes > 999:
 #@   assert.fail("workload_timeout_minutes must be an integer from 1 to 999")
@@ -623,13 +639,16 @@ source:
 name: #@ name
 serial: true
 plan:
-- { put: zrh1-docker-host, params: { acquire: true } }
+#! Fetch inputs before claiming: a failed get after the acquire has no ensure
+#! and would hold the claim.
 - in_parallel:
   - { get: repo, trigger: true }
   - { get: pipeline-tasks }
+- { put: zrh1-docker-host, params: { acquire: true } }
 - task: #@ name
   attempts: 1
-  timeout: #@ str(workload_timeout_minutes + 10) + "m"
+  #! More than the sum of every bounded transport step around the workload.
+  timeout: #@ str(workload_timeout_minutes + 25) + "m"
   config:
     platform: linux
     image_resource: #@ image_resource
@@ -666,6 +685,7 @@ on_failure: #@ on_failure
 #@ end
 
 #@ def run_on_zrh1_nix_host(name, cmd, additional_params={}, workload_timeout_minutes=12):
+#@ zrh1_check_additional_params(additional_params)
 #@ params = dict(additional_params)
 #@ params["SSH_HOST_MODE"] = "nix"
 #@ params["CMD"] = cmd
@@ -674,6 +694,7 @@ on_failure: #@ on_failure
 #@ end
 
 #@ def test_on_zrh1_docker_host(container, additional_params={}, workload_timeout_minutes=20):
+#@ zrh1_check_additional_params(additional_params)
 #@ params = dict(additional_params)
 #@ params["SSH_HOST_MODE"] = "compose"
 #@ params["TEST_CONTAINER"] = container

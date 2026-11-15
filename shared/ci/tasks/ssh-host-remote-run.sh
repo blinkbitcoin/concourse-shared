@@ -18,19 +18,26 @@ else
   export TEST_CONTAINER="$6"
 fi
 # Same steps as the GCP test-on-docker-host.sh, but the test container's exit
-# status is always followed by compose down. No nounset: .envrc may use unset
-# variables or direnv functions, as on the GCP hosts.
+# status is always followed by compose down (rerun with "down" after a workload
+# timeout). No nounset: .envrc may use unset variables or direnv functions, as
+# on the GCP hosts.
 cat > "$run_dir/compose-test.sh" <<'COMPOSE'
 #!/usr/bin/env bash
 project=$(basename "$REPO_PATH")
 export TMP_ENV_CI=tmp.env.ci COMPOSE_PROJECT_NAME="$project"
 # shellcheck disable=SC1091
 source .envrc > /dev/null 2>&1 || true
+if [[ ${1:-} == down ]]; then
+  exec docker compose down --remove-orphans --timeout 1
+fi
 docker compose pull
 docker compose -f docker-compose.yml up "$TEST_CONTAINER" --attach "$TEST_CONTAINER"
 up=$?
 status=1
-ids=$(docker ps -aq -f status=exited -f "name=${project}-${TEST_CONTAINER}-")
+# Exact compose labels: a name prefix also matches services such as
+# "${TEST_CONTAINER}-migrate".
+ids=$(docker ps -aq -f status=exited -f "label=com.docker.compose.project=$project" \
+  -f "label=com.docker.compose.service=$TEST_CONTAINER")
 if [[ $up != 0 ]]; then
   status=$up
 elif [[ $ids =~ ^[0-9a-f]+$ ]]; then
@@ -58,14 +65,23 @@ workload() {
         timeout --foreground --kill-after=15s "$CI_TIMEOUT" nix develop -c bash -c "$CMD"
       ;;
     compose)
-      cd "$REPO_PATH" &&
-        timeout --foreground --kill-after=15s "$CI_TIMEOUT" bash "$CI_RUN_DIR/compose-test.sh"
+      cd "$REPO_PATH" || return 1
+      timeout --foreground --kill-after=15s "$CI_TIMEOUT" bash "$CI_RUN_DIR/compose-test.sh"
+      local rc=$?
+      # A timeout (124, or 137 after KILL) can stop the script before its own
+      # compose down, leaving the stack running on the released host.
+      if [[ $rc == 124 || $rc == 137 ]]; then
+        timeout --foreground --kill-after=15s 60s bash "$CI_RUN_DIR/compose-test.sh" down
+      fi
+      return "$rc"
       ;;
     *) return 1 ;;
   esac
 }
 workload
-printf '%s\n' "$?" > "$CI_RUN_DIR/status"
+# Publish the status atomically: the supervisor polls for this file.
+printf '%s\n' "$?" > "$CI_RUN_DIR/status.tmp" &&
+  mv -f "$CI_RUN_DIR/status.tmp" "$CI_RUN_DIR/status"
 # Keep the session leader alive until the supervising shell terminates the
 # whole group, including any children left behind by the workload.
 while :; do sleep 60; done
@@ -83,8 +99,14 @@ cleanup() {
 trap cleanup EXIT
 trap 'exit 143' HUP INT TERM
 tail -n +1 -f --pid="$runner" "$run_dir/log" &
-while ! test -f "$run_dir/status"; do
+# Accept only a complete numeric status; keep waiting while the leader lives.
+while :; do
+  if test -f "$run_dir/status"; then
+    status=$(cat "$run_dir/status")
+    if [[ $status =~ ^[0-9]{1,3}$ ]]; then
+      exit "$status"
+    fi
+  fi
   kill -0 "$runner"
   sleep 1
 done
-exit "$(cat "$run_dir/status")"

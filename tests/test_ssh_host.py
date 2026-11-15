@@ -42,8 +42,11 @@ if name == "ssh":
     for private in ("google.json", "sa.pem", "known_hosts", "env"):
         assert (key.parent / private).stat().st_mode & 0o777 == 0o600
     assert "StrictHostKeyChecking=yes" in args
+known = next((a.split("=", 1)[1] for a in args if a.startswith("UserKnownHostsFile=")), None)
+known_hosts = pathlib.Path(known).read_text() if known else None
 with log.open("a") as f:
-    f.write(json.dumps({"name": name, "args": args, "input": body}) + "\n")
+    f.write(json.dumps({"name": name, "args": args, "input": body, "known_hosts": known_hosts,
+                        "known_hosts_path": known}) + "\n")
 if str(index) in os.environ.get("FAIL", "").split(","):
     sys.exit(7)
 if os.environ.get("BLOCK") == "workload" and name == "ssh" and "tail -n +1 -f --pid=" in body:
@@ -89,7 +92,9 @@ class Transport(unittest.TestCase):
             path.chmod(0o755)
         # Records the call and whether any secret file already existed on disk.
         script(binary / "make", 'printf "%s %s\\n" "$PWD" "$*" >> "$MAKE_CALLS"\n'
-                                'ls -A "$TMPDIR" >> "$MAKE_CALLS"\nexit "${MAKE_STATUS:-0}"')
+                                'ls -A "$TMPDIR" >> "$MAKE_CALLS"\n'
+                                '[[ -z ${MAKE_PLANT:-} ]] || cp ../zrh1-docker-host/metadata ../host-cleanup/metadata\n'
+                                'exit "${MAKE_STATUS:-0}"')
         self.log = self.root / "calls"
         key = self.root / "fixture.pem"
         subprocess.check_call(["openssl", "genrsa", "-out", str(key), "2048"], stderr=subprocess.DEVNULL)
@@ -125,6 +130,19 @@ class Transport(unittest.TestCase):
             self.assertNotIn(secret, json.dumps([c["args"] for c in self.calls()]))
         return result
 
+    def released(self):
+        receipt = self.root / "host-cleanup/metadata"
+        return receipt.exists() and receipt.read_text() == self.metadata_file.read_text()
+
+    def assert_host_key_pinned(self, calls):
+        ssh_calls = [c for c in calls if c["name"] == "ssh"]
+        self.assertTrue(ssh_calls)
+        for call in ssh_calls:
+            self.assertEqual(call["known_hosts"], f"{self.meta['ssh_host']} {self.meta['ssh_host_key']}\n")
+            key = call["args"][call["args"].index("-i") + 1]
+            self.assertEqual(call["known_hosts_path"], str(Path(key).parent / "known_hosts"))
+            self.assertEqual(call["args"][-2], f"ci@{self.meta['ssh_host']}")
+
     def remote_args(self, call):
         # Decode the actual SSH command with Bash, preserving multiline commands.
         decoded = subprocess.check_output(["bash", "-c", "set -- " + call["args"][-1] + '; printf "%s\\0" "$@"'])
@@ -156,6 +174,10 @@ class Transport(unittest.TestCase):
         self.assertEqual(payload["scope"], "https://www.googleapis.com/auth/devstorage.read_only")
         self.assertEqual(payload["aud"], "https://oauth2.googleapis.com/token")
         self.assertEqual(payload["iss"], "ci-fixture@example.invalid")
+        # Google rejects assertions that live longer than one hour.
+        self.assertEqual(payload["exp"] - payload["iat"], 3600)
+        self.assertTrue(time.time() - 120 <= payload["iat"] <= time.time())
+        self.assert_host_key_pinned(calls)
         signed = self.root / "signed"
         signature = self.root / "sig.bin"
         public = self.root / "pub.pem"
@@ -186,6 +208,7 @@ class Transport(unittest.TestCase):
         self.assertEqual(decoded.decode(), value)
         self.assertNotIn("EMPTY_PARAM", upload["input"])
         self.assertNotIn("UNSET_PARAM", upload["input"])
+        self.assert_host_key_pinned(self.calls())
 
     def test_invalid_or_reserved_params_refuse_before_remote_access(self):
         (self.root / "repo/a-file").write_text("glob target")
@@ -193,6 +216,8 @@ class Transport(unittest.TestCase):
             with self.subTest(keys=keys):
                 self.assertNotEqual(self.invoke(PARAMS_KEYS=keys).returncode, 0)
                 self.assertEqual(self.calls(), [])
+                # The host was never contacted, so the claim is released.
+                self.assertTrue(self.released())
 
     def test_env_ci_is_substituted_on_worker_without_transport_credentials(self):
         (self.root / "repo/.env.ci").write_text("A=${RAIN_API_KEY}\nB=${SSH_PRIVATE_KEY}\nC=${GOOGLE_CREDENTIALS}\n")
@@ -210,7 +235,7 @@ class Transport(unittest.TestCase):
                 self.assertEqual(result.returncode, 0, result.stderr)
                 # Repository code runs before any key file exists in TMPDIR.
                 self.assertEqual((self.root / "make-calls").read_text(),
-                                 f"{self.root / 'repo'} create-tmp-env-ci\n")
+                                 f"{(self.root / 'repo').resolve()} create-tmp-env-ci\n")
         workload = self.calls()[-2]
         self.assertEqual(self.remote_args(workload),
                          ["bash", "-s", "--", ".ci-run/run.12345678", "repo", ".", "compose", "45", "integration-tests"])
@@ -218,6 +243,17 @@ class Transport(unittest.TestCase):
             with self.subTest(container=container):
                 self.assertNotEqual(self.invoke(SSH_HOST_MODE="compose", TEST_CONTAINER=container).returncode, 0)
                 self.assertEqual(self.calls(), [])
+                self.assertTrue(self.released())
+
+    def test_receipt_planted_by_repository_code_cannot_release(self):
+        # make runs repository code in this task; only cleanup may write the receipt.
+        self.assertEqual(self.invoke(SSH_HOST_MODE="compose", TEST_CONTAINER="integration-tests").returncode, 0)
+        cleanup = len(self.calls()) - 1
+        result = self.invoke(SSH_HOST_MODE="compose", TEST_CONTAINER="integration-tests", MAKE_PLANT="1",
+                             FAIL=str(cleanup))
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("cleanup failed", result.stderr)
+        self.assertFalse((self.root / "host-cleanup/metadata").exists())
 
     def test_missing_client_dependencies_refuse_before_remote_access(self):
         # Do not let tools installed on the test runner hide an incomplete image.
@@ -233,6 +269,8 @@ class Transport(unittest.TestCase):
                 self.assertEqual(result.returncode, 1, result.stderr)
                 self.assertIn(f"task image is missing {missing}", result.stderr)
                 self.assertEqual(self.calls(), [])
+                # Checked before the claim is validated: kept conservatively.
+                self.assertFalse(self.released())
 
     def test_every_external_failure_cleans_up_and_preserves_status(self):
         self.assertEqual(self.invoke().returncode, 0)
@@ -271,9 +309,9 @@ class Transport(unittest.TestCase):
         self.assertIn("cleanup failed", result.stderr)
 
     def test_timeout_cleans_up(self):
-        # Shorten only the workload deadline (45m + 100s); exercise real GNU timeout.
+        # Shorten only the workload deadline (45m + 200s); exercise real GNU timeout.
         script(self.root / "bin/timeout",
-               'if [[ $2 == 2800s ]]; then set -- "$1" 0.2s "${@:3}"; fi\n'
+               'if [[ $2 == 2900s ]]; then set -- "$1" 0.2s "${@:3}"; fi\n'
                "exec " + shlex.quote(shutil.which("timeout")) + ' "$@"')
         result = self.invoke(BLOCK="workload")
         self.assertEqual(result.returncode, 124, result.stderr)
@@ -290,7 +328,9 @@ class Transport(unittest.TestCase):
                 env=dict(self.env, TMPDIR=str(directory)), capture_output=True, text=True)
             self.assertEqual(result.returncode, 1, result.stderr)
             self.assertFalse(list(directory.iterdir()))
-            self.assertEqual(self.calls()[-1]["input"], CLEANUP)
+            # Refused before any SSH command, so nothing to clean up remotely.
+            self.assertEqual(self.calls(), [])
+            self.assertTrue(self.released())
             directory.rmdir()
 
     def test_missing_token_and_bad_directory_fail_closed(self):
@@ -311,16 +351,19 @@ class Transport(unittest.TestCase):
                 self.metadata_file.write_text(json.dumps(dict(self.meta, **changes)))
                 self.assertNotEqual(self.invoke().returncode, 0)
                 self.assertEqual(self.calls(), [])
+                self.assertFalse((self.root / "host-cleanup/metadata").exists())
         for value in ["not JSON", "null", "[]", json.dumps(self.meta) + "\n" + json.dumps(self.meta)]:
             self.metadata_file.write_text(value)
             self.assertNotEqual(self.invoke().returncode, 0)
             self.assertEqual(self.calls(), [])
+            self.assertFalse((self.root / "host-cleanup/metadata").exists())
         self.metadata_file.write_text(json.dumps(self.meta))
         # REPO_PATH is removed with sudo on the host: one plain, non-dot component.
         for path in ["/root", "../repo", "repo/../other", "-option", "a b", "", ".", "..", ".ci-run", "repo/sub"]:
             with self.subTest(REPO_PATH=path):
                 self.assertNotEqual(self.invoke(REPO_PATH=path).returncode, 0)
                 self.assertEqual(self.calls(), [])
+                self.assertTrue(self.released())
         for path in ["/root", "../repo", "repo/../other", "-option", "a b", ""]:
             with self.subTest(PACKAGE_DIR=path):
                 self.assertNotEqual(self.invoke(PACKAGE_DIR=path).returncode, 0)
@@ -331,6 +374,7 @@ class Transport(unittest.TestCase):
             with self.subTest(changes=changes):
                 self.assertNotEqual(self.invoke(**changes).returncode, 0)
                 self.assertEqual(self.calls(), [])
+                self.assertTrue(self.released())
         for address in ["10.1.2.3", "172.16.1.2", "172.31.255.255", "192.168.1.2"]:
             self.metadata_file.write_text(json.dumps(dict(self.meta, ssh_host=address)))
             self.assertEqual(self.invoke().returncode, 0)
@@ -343,11 +387,13 @@ class Transport(unittest.TestCase):
             with self.subTest(creds=creds[:24]):
                 self.assertNotEqual(self.invoke(GOOGLE_CREDENTIALS=creds).returncode, 0)
                 self.assertEqual(self.calls(), [])
+                self.assertTrue(self.released())
 
     def test_missing_inputs_refuse_before_remote_access(self):
         for update in [{"CMD": " "}, {"SSH_PRIVATE_KEY": ""}, {"GOOGLE_CREDENTIALS": ""}, {"REPO_PATH": "missing"}]:
             self.assertNotEqual(self.invoke(**update).returncode, 0)
             self.assertEqual(self.calls(), [])
+            self.assertTrue(self.released())
 
     def test_cancellation_runs_cleanup_and_removes_secrets(self):
         for sig in [signal.SIGTERM, signal.SIGINT, signal.SIGHUP]:
@@ -618,7 +664,7 @@ class RemoteRunner(unittest.TestCase):
 printf '%s|%s|%s|%s\n' "$*" "$DOCKER_CONFIG" "${COMPOSE_PROJECT_NAME:-}" "${PARAM_FIXTURE:-}" >> "$DOCKER_LOG"
 case "$1 $2" in
   "compose pull"|"compose down") exit 0 ;;
-  "compose -f") exit "$UP_STATUS" ;;
+  "compose -f") [[ -z ${UP_SLEEP:-} ]] || sleep "$UP_SLEEP"; exit "$UP_STATUS" ;;
 esac
 case $1 in
   ps) [[ -z $CONTAINER_IDS ]] || printf '%s\n' $CONTAINER_IDS; exit 0 ;;
@@ -664,12 +710,29 @@ exit 64''')
                 commands = [entry[0] for entry in log]
                 self.assertEqual(commands[0], "compose pull")
                 self.assertEqual(commands[1], "compose -f docker-compose.yml up integration-tests --attach integration-tests")
-                self.assertEqual(commands[2], "ps -aq -f status=exited -f name=repo-integration-tests-")
+                self.assertEqual(commands[2], "ps -aq -f status=exited -f label=com.docker.compose.project=repo"
+                                              " -f label=com.docker.compose.service=integration-tests")
                 self.assertEqual(commands[-1], "compose down --remove-orphans --timeout 1")
                 for _, config, project, param in log:
                     self.assertEqual(config, str(self.run_dir / "docker"))
                     self.assertEqual(project, "repo")
                     self.assertEqual(param, "from-env")
+
+    def test_compose_timeout_still_runs_compose_down(self):
+        # timeout signals only compose-test.sh; the stack must still come down.
+        script(self.root / "bin/timeout",
+               'if [[ $1 == --foreground && $3 == 1m ]]; then set -- --foreground --kill-after=1s 1s "${@:4}"; fi\n'
+               "exec " + shlex.quote(shutil.which("timeout")) + ' "$@"')
+        (self.run_dir / "env").write_text("export PARAM_FIXTURE=from-env\n")
+        result = self.run_remote("compose", "integration-tests", minutes="1", UP_STATUS="0", UP_SLEEP="30",
+                                 CONTAINER_IDS="abc123", TEST_EXIT="0")
+        self.assertEqual(result.returncode, 124, result.stderr)
+        log = [line.split("|") for line in (self.root / "docker-log").read_text().splitlines()]
+        commands = [entry[0] for entry in log]
+        self.assertEqual(commands[:2], ["compose pull",
+                                        "compose -f docker-compose.yml up integration-tests --attach integration-tests"])
+        self.assertEqual(commands[-1], "compose down --remove-orphans --timeout 1")
+        self.assertEqual(log[-1][2], "repo")
 
     def test_cancellation_kills_term_ignoring_children_and_missing_path_fails(self):
         for mode in ["cancel", "missing"]:
@@ -696,6 +759,14 @@ exit 64''')
                         proc.kill()
                         proc.communicate()
                 (self.run_dir / "status").unlink(missing_ok=True)
+
+    def test_status_is_read_only_when_complete(self):
+        # An empty status file stands in for a write the supervisor observes
+        # before its content lands; the real exit status must still win.
+        result = self.run_remote("nix", ': > "$CI_RUN_DIR/status"; sleep 2; exit 7')
+        self.assertEqual(result.returncode, 7, result.stderr)
+        self.assertEqual((self.run_dir / "status").read_text(), "7\n")
+        self.assertFalse((self.run_dir / "status.tmp").exists())
 
     def test_unreadable_params_file_fails_workload_without_running_it(self):
         (self.run_dir / "env").write_text("export BROKEN='unterminated\n")

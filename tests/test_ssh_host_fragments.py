@@ -64,11 +64,13 @@ class Fragments(unittest.TestCase):
         for name, (mode, minutes, image) in expected.items():
             with self.subTest(job=name):
                 job = jobs[name]
-                acquire, gets, task = job["plan"]
+                # Inputs are fetched before the claim, so a failed get cannot hold it.
+                gets, acquire, task = job["plan"]
+                self.assertEqual(gets, {"in_parallel": [{"get": "repo", "trigger": True}, {"get": "pipeline-tasks"}]})
                 self.assertEqual(acquire, {"put": "zrh1-docker-host", "params": {"acquire": True}})
                 self.assertEqual(task["attempts"], 1)
                 self.assertNotIn("tags", task)
-                self.assertEqual(task["timeout"], f"{minutes + 10}m")
+                self.assertEqual(task["timeout"], f"{minutes + 25}m")
                 config = task["config"]
                 self.assertTrue(config["image_resource"]["source"]["repository"].endswith("/" + image))
                 self.assertEqual(config["run"]["path"], "pipeline-tasks/ci/vendor/tasks/ssh-host-run.sh")
@@ -102,6 +104,18 @@ class Fragments(unittest.TestCase):
             self.assertEqual(task["attempts"], 2)
             self.assertEqual(task["config"]["run"]["path"], "pipeline-tasks/ci/vendor/tasks/" + path)
             self.assertEqual(task["ensure"], {"put": "docker-host", "params": {"release": "docker-host"}})
+
+    def test_reserved_or_invalid_additional_params_fail_render(self):
+        # ssh-host-run.sh refuses these too; failing at render keeps hosts unclaimed.
+        for key in ["PACKAGE_DIR", "CMD", "PATH", "DOCKER_CONFIG", "LD_PRELOAD", "bad-name", "1ABC"]:
+            with self.subTest(key=key):
+                pipeline = CONSUMER.replace('{"RAIN_API_KEY": "((rain.key))"}', '{"%s": "x"}' % key)
+                result = self.render(pipeline)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("additional_params key", result.stderr)
+                pipeline = CONSUMER.replace('test_on_zrh1_docker_host("compose-tests")',
+                                            'test_on_zrh1_docker_host("compose-tests", {"%s": "x"})' % key)
+                self.assertNotEqual(self.render(pipeline).returncode, 0)
 
     def test_invalid_workload_timeout_fails_render(self):
         for value in ["0", "1000", '"12"']:

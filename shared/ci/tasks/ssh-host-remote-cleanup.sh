@@ -45,10 +45,15 @@ fi
 rm -rf -- "$run_dir/docker" "$run_dir/env"
 # Keep the four newest run directories (logs and launch evidence), as the
 # blink core GCP host task does. Never remove this attempt's directory here.
-if compgen -G '.ci-run/run.*' >/dev/null; then
+# A nullglob array, not compgen: Bash builds without programmable completion
+# (nixpkgs' non-interactive bash) lack compgen, which would skip the prune.
+shopt -s nullglob
+runs=(.ci-run/run.*)
+shopt -u nullglob
+if [[ ${#runs[@]} -gt 0 ]]; then
   kept=0
   # shellcheck disable=SC2012 # Same newest-first order as the GCP host prune; each name is checked before rm.
-  ls -dt .ci-run/run.* | while IFS= read -r path; do
+  ls -dt -- "${runs[@]}" | while IFS= read -r path; do
     [[ $path =~ ^\.ci-run/run\.[A-Za-z0-9]+$ ]] || continue
     [ -L "$path" ] && continue
     [ -d "$path" ] || continue
