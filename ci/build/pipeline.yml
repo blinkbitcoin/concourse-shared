@@ -720,6 +720,7 @@ jobs:
       params:
         FEATURES:
         - nodejs
+        - docker
       run:
         path: repo/ci/tasks/bump-shared-files.sh
   - put: blink-circles-pr-branch
