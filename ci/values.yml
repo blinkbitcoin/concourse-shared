@@ -26,7 +26,7 @@ src_repos:
   blink-client: ["nodejs"]
   blink-nostr: ["nodejs","docker","chart"]
   blink-fiat: ["nodejs", "docker", "chart"]
-  blink-circles: ["nodejs"]
+  blink-circles: ["nodejs", "docker"]
   blink-card: ["rust", "docker", "chart"]
   blink-lnurl-server: ["rust", "docker", "chart"]
   stablesats-rs: ["rust", "docker", "chart"]
