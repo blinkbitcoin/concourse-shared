@@ -17,13 +17,15 @@ Publication dates below are UTC.
 
 | Profile | Repository | Digest | Publication |
 | --- | --- | --- | --- |
-| node | nodejs-concourse | sha256:8e9d5591bc55697df061390c745c422958370cf714e00249b78d4784fee7d6a6 | Node5, 2026-10-24 |
-| rust | rust-concourse | sha256:e3efda4c461ed0ca5d341b8dc8635f0f953a6e82dee5a7826ac5eb96ab3d98ed | Rust6, 2026-10-26, source 60171adb71a376013d23af9568b16a03669c8fc8 |
-| release | release-pipeline | sha256:7d6b62ac98f82b5ab8d66a9652e21e8c68506d63f3c9ce68ab5d1bbef87c22d6 | release4, 2026-10-24 |
-| wincross | wincross-rust | sha256:8a7a354f24f541bc1330f5d207acb0cabcf8f5a1d30178313876e36f9c751718 | wincross5, 2026-10-24 |
+| node | nodejs-concourse | sha256:59c7e62d4354a10c0304f6c38eaa2888077f5a4db58246af6debe2d00aac0a01 | Node6, 2026-11-16, source ddab16d81fea91ca7cacad30fd7bff1d31e34707 |
+| rust | rust-concourse | sha256:246625941d82e091e9ae6fab0a8ce6d128f9c76df236691b20bee17d60d4beef | Rust7, 2026-11-16, source ddab16d81fea91ca7cacad30fd7bff1d31e34707 |
+| release | release-pipeline | sha256:64493f660b2a300534b46b060f2cb5a187dc3692106fee1922a7df98958de53f | release5, 2026-11-16, source ddab16d81fea91ca7cacad30fd7bff1d31e34707 |
+| wincross | wincross-rust | sha256:082a75d6e7bf035df05c46b7803e232b1a4d9072368dbdfb7c224bbb2c68dbc3 | wincross6, 2026-11-16, source ddab16d81fea91ca7cacad30fd7bff1d31e34707 |
 
-Rust6 includes PR #43's Cargo Audit transport fix. Publication evidence:
-[Concourse Rust build 6](https://ci.blinkbtc.com/teams/dev/pipelines/blink-concourse-shared/jobs/build-rust-concourse-image/builds/6).
+All four candidates were built from the same source, which includes PR #43's
+Cargo Audit transport fix and PR #47's Node, pip and certifi refresh and rustup
+update-check fix. Publication evidence:
+[Concourse Rust build 7](https://ci.blinkbtc.com/teams/dev/pipelines/blink-concourse-shared/jobs/build-rust-concourse-image/builds/7).
 
 ## Coverage and evidence
 

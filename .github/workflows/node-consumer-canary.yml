@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
-      IMAGE: us.gcr.io/galoy-org/nodejs-concourse@sha256:8e9d5591bc55697df061390c745c422958370cf714e00249b78d4784fee7d6a6
+      IMAGE: us.gcr.io/galoy-org/nodejs-concourse@sha256:59c7e62d4354a10c0304f6c38eaa2888077f5a4db58246af6debe2d00aac0a01
       CONSUMER_REVISION: 393276b690b8f809f068cfb3e3f2afc54ff91e76
     steps:
       - uses: actions/checkout@v4
