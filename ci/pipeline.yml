@@ -205,6 +205,8 @@ jobs:
       - name: source-repo
       params:
         FEATURES: #@ data.values.src_repos[repo]
+        GH_APP_ID: #@ data.values.github_app_id
+        GH_APP_PRIVATE_KEY: #@ data.values.github_app_private_key
       run:
         path: repo/ci/tasks/bump-shared-files.sh
   - put: #@ repo_pr_branch_resource_name(repo)

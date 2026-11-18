@@ -1,4 +1,5 @@
 """Run ci/tasks/bump-shared-files.sh against stubbed vendir output."""
+import base64
 import os
 import shutil
 from pathlib import Path
@@ -10,12 +11,15 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "ci/tasks/bump-shared-files.sh"
 DEPENDABOT = "version: 2\nupdates: []\n"
+STUB_TOKEN = "ghs_stubInstallationToken0123456789"
+SHARED_URL = "https://github.com/blinkbitcoin/concourse-shared.git"
 
 VENDIR_STUB = textwrap.dedent(f"""\
     #!/bin/bash
     # Stands in for `vendir sync`, run from source-repo/ci.
     set -eu
     [[ "$1" == "sync" ]]
+    printf '%s\\n' "${{GIT_CONFIG_COUNT-}}" "${{GIT_CONFIG_KEY_0-}}" "${{GIT_CONFIG_VALUE_0-}}" > "$VENDIR_ENV_RECORD"
     mkdir -p vendor/config vendor/tasks ../.github/workflows/vendor
     for feature in ${{STUB_DEPENDABOT_FEATURES-nodejs}}; do
       printf '{DEPENDABOT}' > "vendor/config/${{feature}}-dependabot.yml"
@@ -26,6 +30,14 @@ VENDIR_STUB = textwrap.dedent(f"""\
       mkdir -p "$(dirname "../bin/vendor/$name")"
       printf '#!/bin/sh\\n' > "../bin/vendor/$name"
     done
+    """)
+
+# Stands in for `ghtoken generate -b <key> -i <app id>`; prints STUB_GHTOKEN_JSON.
+GHTOKEN_STUB = textwrap.dedent("""\
+    #!/bin/bash
+    set -eu
+    [[ "$*" == "generate -b stub-private-key -i 4242" ]]
+    printf '%s\\n' "$STUB_GHTOKEN_JSON"
     """)
 
 
@@ -46,11 +58,16 @@ class BumpSharedFilesTests(unittest.TestCase):
             GIT_CONFIG_GLOBAL=str(self.tmp / "home" / ".gitconfig"),
             PATH=f"{self.tmp / 'bin'}:{os.environ['PATH']}",
             FEATURES="[]",
+            GH_APP_ID="4242",
+            GH_APP_PRIVATE_KEY="stub-private-key",
+            STUB_GHTOKEN_JSON='{"token": "%s"}' % STUB_TOKEN,
+            VENDIR_ENV_RECORD=str(self.tmp / "vendir-env"),
         )
         (self.tmp / "home").mkdir()
         bin_dir = self.tmp / "bin"
         bin_dir.mkdir()
-        for name, body in (("vendir", VENDIR_STUB), ("rename", "#!/bin/sh\nexit 0\n")):
+        for name, body in (("vendir", VENDIR_STUB), ("ghtoken", GHTOKEN_STUB),
+                           ("rename", "#!/bin/sh\nexit 0\n")):
             (bin_dir / name).write_text(body)
             (bin_dir / name).chmod(0o755)
 
@@ -134,6 +151,41 @@ class BumpSharedFilesTests(unittest.TestCase):
         self.run_script()
         self.assertEqual(git(self.source, "status", "--porcelain"), "")
         self.assertEqual(git(self.source, "log", "-1", "--format=%s"), "ci(shared): bump vendored ci files")
+
+    def test_vendir_fetch_is_authenticated_with_an_env_only_header(self):
+        result = self.run_script()
+        count, key, value = (self.tmp / "vendir-env").read_text().splitlines()
+        self.assertEqual(count, "1")
+        self.assertEqual(key, f"http.{SHARED_URL}.extraheader")
+        expected = base64.b64encode(f"x-access-token:{STUB_TOKEN}".encode()).decode()
+        self.assertEqual(value, f"AUTHORIZATION: basic {expected}")
+        # Neither form of the token may reach logs, git config or the consumer commit.
+        for secret in (STUB_TOKEN, expected):
+            self.assertNotIn(secret, result.stdout)
+            for path in [*self.tmp.joinpath("source-repo").rglob("*"), *self.tmp.joinpath("home").rglob("*")]:
+                if path.is_file():
+                    self.assertNotIn(secret.encode(), path.read_bytes(), path)
+        self.assertNotIn("extraheader", (self.source / "ci/vendir.yml").read_text())
+
+    def test_missing_app_token_fails_before_vendir(self):
+        self.env["STUB_GHTOKEN_JSON"] = '{"token": null}'
+        result = self.run_script(check=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("could not mint a GitHub App token", result.stdout)
+        self.assertFalse((self.tmp / "vendir-env").exists())
+        self.assertEqual(git(self.source, "rev-parse", "HEAD"), self.initial)
+
+    def test_unexpected_vendir_url_fails_before_minting_a_token(self):
+        repo_tmpl = self.tmp / "repo/vendir.tmpl.yml"
+        repo_tmpl.write_text(repo_tmpl.read_text().replace(SHARED_URL, "https://example.invalid/x.git", 1))
+        subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@example.invalid",
+                        "-c", "commit.gpgsign=false", "commit", "-qam", "url"],
+                       cwd=self.tmp / "repo", check=True, env=self.env)
+        self.env["STUB_GHTOKEN_JSON"] = "unused"
+        result = self.run_script(check=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("expected one github.com HTTPS url", result.stdout)
+        self.assertFalse((self.tmp / "vendir-env").exists())
 
 
 class VendoredSourceWhitespaceTests(unittest.TestCase):
