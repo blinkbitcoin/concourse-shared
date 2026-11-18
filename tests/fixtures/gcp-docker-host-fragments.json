@@ -1,0 +1,176 @@
+{
+    "jobs": [
+        {
+            "name": "legacy-nix",
+            "plan": [
+                {
+                    "params": {
+                        "acquire": true
+                    },
+                    "put": "docker-host"
+                },
+                {
+                    "in_parallel": [
+                        {
+                            "get": "repo",
+                            "trigger": true
+                        },
+                        {
+                            "get": "pipeline-tasks"
+                        }
+                    ]
+                },
+                {
+                    "attempts": 2,
+                    "config": {
+                        "image_resource": {
+                            "source": {
+                                "password": "((docker-creds.password))",
+                                "repository": "us.gcr.io/galoy-org/nodejs-concourse",
+                                "username": "((docker-creds.username))"
+                            },
+                            "type": "registry-image"
+                        },
+                        "inputs": [
+                            {
+                                "name": "pipeline-tasks"
+                            },
+                            {
+                                "name": "docker-host"
+                            },
+                            {
+                                "name": "repo",
+                                "path": "fixture-legacy-nix"
+                            }
+                        ],
+                        "params": {
+                            "CMD": "make legacy",
+                            "GOOGLE_CREDENTIALS": "((staging-gcp-creds.creds_json))",
+                            "LEGACY_KEY": "((legacy.key))",
+                            "PARAMS_KEYS": "LEGACY_KEY",
+                            "REPO_PATH": "fixture-legacy-nix",
+                            "SSH_PRIVATE_KEY": "((staging-ssh.ssh_private_key))",
+                            "SSH_PUB_KEY": "((staging-ssh.ssh_public_key))"
+                        },
+                        "platform": "linux",
+                        "run": {
+                            "path": "pipeline-tasks/ci/vendor/tasks/run-on-nix-host.sh"
+                        }
+                    },
+                    "ensure": {
+                        "params": {
+                            "release": "docker-host"
+                        },
+                        "put": "docker-host"
+                    },
+                    "tags": [
+                        "galoy-staging"
+                    ],
+                    "task": "legacy-nix",
+                    "timeout": "12m"
+                }
+            ],
+            "serial": true
+        },
+        {
+            "name": "legacy-compose",
+            "on_failure": {
+                "params": {
+                    "channel": "chan",
+                    "icon_url": "https://cl.ly/2F421Y300u07/concourse-logo-blue-transparent.png",
+                    "text": "<$ATC_EXTERNAL_URL/teams/$BUILD_TEAM_NAME/pipelines/$BUILD_PIPELINE_NAME/jobs/$BUILD_JOB_NAME/builds/$BUILD_NAME| :face_with_symbols_on_mouth: $BUILD_JOB_NAME> failed!",
+                    "username": "concourse"
+                },
+                "put": "slack"
+            },
+            "plan": [
+                {
+                    "params": {
+                        "acquire": true
+                    },
+                    "put": "docker-host"
+                },
+                {
+                    "in_parallel": [
+                        {
+                            "get": "repo",
+                            "trigger": true
+                        },
+                        {
+                            "get": "pipeline-tasks"
+                        }
+                    ]
+                },
+                {
+                    "attempts": 2,
+                    "config": {
+                        "caches": [
+                            {
+                                "path": "cargo-home"
+                            },
+                            {
+                                "path": "cargo-target-dir"
+                            }
+                        ],
+                        "image_resource": {
+                            "source": {
+                                "password": "((docker-creds.password))",
+                                "repository": "us.gcr.io/galoy-org/rust-concourse",
+                                "username": "((docker-creds.username))"
+                            },
+                            "type": "registry-image"
+                        },
+                        "inputs": [
+                            {
+                                "name": "pipeline-tasks"
+                            },
+                            {
+                                "name": "docker-host"
+                            },
+                            {
+                                "name": "repo",
+                                "path": "fixture-legacy-compose"
+                            }
+                        ],
+                        "params": {
+                            "GOOGLE_CREDENTIALS": "((staging-gcp-creds.creds_json))",
+                            "JEST_TIMEOUT": 90000,
+                            "REPO_PATH": "fixture-legacy-compose",
+                            "SSH_PRIVATE_KEY": "((staging-ssh.ssh_private_key))",
+                            "SSH_PUB_KEY": "((staging-ssh.ssh_public_key))",
+                            "TEST_CONTAINER": "legacy-compose"
+                        },
+                        "platform": "linux",
+                        "run": {
+                            "path": "pipeline-tasks/ci/vendor/tasks/test-on-docker-host.sh"
+                        }
+                    },
+                    "ensure": {
+                        "params": {
+                            "release": "docker-host"
+                        },
+                        "put": "docker-host"
+                    },
+                    "tags": [
+                        "galoy-staging"
+                    ],
+                    "task": "legacy-compose",
+                    "timeout": "20m"
+                }
+            ],
+            "serial": true
+        }
+    ],
+    "resources": [
+        {
+            "name": "docker-host",
+            "source": {
+                "branch": "main",
+                "pool": "docker-hosts",
+                "private_key": "KEY",
+                "uri": "git@github.com:blinkbitcoin/concourse-locks.git"
+            },
+            "type": "pool"
+        }
+    ]
+}
