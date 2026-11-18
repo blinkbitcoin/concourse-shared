@@ -500,6 +500,8 @@ jobs:
       params:
         FEATURES:
         - nodejs
+        GH_APP_ID: ((github-blinkbitcoin.github_app_id))
+        GH_APP_PRIVATE_KEY: ((github-blinkbitcoin.github_app_private_key))
       run:
         path: repo/ci/tasks/bump-shared-files.sh
   - put: mavapay-client-pr-branch
@@ -554,6 +556,8 @@ jobs:
       params:
         FEATURES:
         - nodejs
+        GH_APP_ID: ((github-blinkbitcoin.github_app_id))
+        GH_APP_PRIVATE_KEY: ((github-blinkbitcoin.github_app_private_key))
       run:
         path: repo/ci/tasks/bump-shared-files.sh
   - put: blink-client-pr-branch
@@ -610,6 +614,8 @@ jobs:
         - nodejs
         - docker
         - chart
+        GH_APP_ID: ((github-blinkbitcoin.github_app_id))
+        GH_APP_PRIVATE_KEY: ((github-blinkbitcoin.github_app_private_key))
       run:
         path: repo/ci/tasks/bump-shared-files.sh
   - put: blink-nostr-pr-branch
@@ -666,6 +672,8 @@ jobs:
         - nodejs
         - docker
         - chart
+        GH_APP_ID: ((github-blinkbitcoin.github_app_id))
+        GH_APP_PRIVATE_KEY: ((github-blinkbitcoin.github_app_private_key))
       run:
         path: repo/ci/tasks/bump-shared-files.sh
   - put: blink-fiat-pr-branch
@@ -721,6 +729,8 @@ jobs:
         FEATURES:
         - nodejs
         - docker
+        GH_APP_ID: ((github-blinkbitcoin.github_app_id))
+        GH_APP_PRIVATE_KEY: ((github-blinkbitcoin.github_app_private_key))
       run:
         path: repo/ci/tasks/bump-shared-files.sh
   - put: blink-circles-pr-branch
@@ -777,6 +787,8 @@ jobs:
         - rust
         - docker
         - chart
+        GH_APP_ID: ((github-blinkbitcoin.github_app_id))
+        GH_APP_PRIVATE_KEY: ((github-blinkbitcoin.github_app_private_key))
       run:
         path: repo/ci/tasks/bump-shared-files.sh
   - put: blink-card-pr-branch
@@ -833,6 +845,8 @@ jobs:
         - rust
         - docker
         - chart
+        GH_APP_ID: ((github-blinkbitcoin.github_app_id))
+        GH_APP_PRIVATE_KEY: ((github-blinkbitcoin.github_app_private_key))
       run:
         path: repo/ci/tasks/bump-shared-files.sh
   - put: blink-lnurl-server-pr-branch
@@ -889,6 +903,8 @@ jobs:
         - rust
         - docker
         - chart
+        GH_APP_ID: ((github-blinkbitcoin.github_app_id))
+        GH_APP_PRIVATE_KEY: ((github-blinkbitcoin.github_app_private_key))
       run:
         path: repo/ci/tasks/bump-shared-files.sh
   - put: stablesats-rs-pr-branch
@@ -945,6 +961,8 @@ jobs:
         - rust
         - docker
         - chart
+        GH_APP_ID: ((github-blinkbitcoin.github_app_id))
+        GH_APP_PRIVATE_KEY: ((github-blinkbitcoin.github_app_private_key))
       run:
         path: repo/ci/tasks/bump-shared-files.sh
   - put: symphony-pr-branch
@@ -1001,6 +1019,8 @@ jobs:
         - nodejs
         - docker
         - chart
+        GH_APP_ID: ((github-blinkbitcoin.github_app_id))
+        GH_APP_PRIVATE_KEY: ((github-blinkbitcoin.github_app_private_key))
       run:
         path: repo/ci/tasks/bump-shared-files.sh
   - put: blink-admin-panel-private-pr-branch
@@ -1057,6 +1077,8 @@ jobs:
         - nodejs
         - docker
         - chart
+        GH_APP_ID: ((github-blinkbitcoin.github_app_id))
+        GH_APP_PRIVATE_KEY: ((github-blinkbitcoin.github_app_private_key))
       run:
         path: repo/ci/tasks/bump-shared-files.sh
   - put: blink-terminal-pr-branch
