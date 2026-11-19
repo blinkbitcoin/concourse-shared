@@ -18,6 +18,7 @@ WRAPPER = ROOT / "shared/ci/tasks/nodejs-audit.sh"
 PROD = {
     "@scope/app-dep": ["1.0.0"],
     "opt-dep": ["1.5.0"],
+    "other-peer": ["1.0.0"],
     "opt-transitive": ["1.0.0"],
     "peer-dep": ["2.0.0"],
     "real-pkg": ["3.1.0"],
@@ -33,13 +34,16 @@ PNPM_V9 = textwrap.dedent("""\
       autoInstallPeers: true
       excludeLinksFromLockfile: false
 
+    overrides:
+      transitive: 2.0.0
+
     importers:
 
       .:
         dependencies:
           '@scope/app-dep':
             specifier: ^1.0.0
-            version: 1.0.0(peer-dep@2.0.0)
+            version: 1.0.0(other-peer@1.0.0)(peer-dep@2.0.0)
           aliased:
             specifier: npm:real-pkg@^3.0.0
             version: real-pkg@3.1.0
@@ -80,8 +84,9 @@ PNPM_V9 = textwrap.dedent("""\
 
     snapshots:
 
-      '@scope/app-dep@1.0.0(peer-dep@2.0.0)':
+      '@scope/app-dep@1.0.0(other-peer@1.0.0)(peer-dep@2.0.0)':
         dependencies:
+          other-peer: 1.0.0
           peer-dep: 2.0.0
           transitive: 2.0.0
 
@@ -97,13 +102,19 @@ PNPM_V9 = textwrap.dedent("""\
 
       opt-transitive@1.0.0: {}
 
+      other-peer@1.0.0: {}
+
       peer-dep@2.0.0: {}
 
       real-pkg@3.1.0: {}
 
-      transitive@2.0.0: {}
+      transitive@2.0.0:
+        dependencies:
+          ws-dep: 4.0.0
 
-      ws-dep@4.0.0: {}
+      ws-dep@4.0.0:
+        dependencies:
+          transitive: 2.0.0
     """)
 
 PNPM_V6 = textwrap.dedent("""\
@@ -118,7 +129,7 @@ PNPM_V6 = textwrap.dedent("""\
         dependencies:
           '@scope/app-dep':
             specifier: ^1.0.0
-            version: 1.0.0(peer-dep@2.0.0)
+            version: 1.0.0(other-peer@1.0.0)(peer-dep@2.0.0)
           aliased:
             specifier: npm:real-pkg@^3.0.0
             version: /real-pkg@3.1.0
@@ -142,11 +153,13 @@ PNPM_V6 = textwrap.dedent("""\
 
     packages:
 
-      /@scope/app-dep@1.0.0(peer-dep@2.0.0):
+      /@scope/app-dep@1.0.0(other-peer@1.0.0)(peer-dep@2.0.0):
         resolution: {integrity: sha512-a}
         peerDependencies:
+          other-peer: ^1.0.0
           peer-dep: ^2.0.0
         dependencies:
+          other-peer: 1.0.0
           peer-dep: 2.0.0
           transitive: 2.0.0
         dev: false
@@ -173,6 +186,10 @@ PNPM_V6 = textwrap.dedent("""\
         dev: false
         optional: true
 
+      /other-peer@1.0.0:
+        resolution: {integrity: sha512-j}
+        dev: false
+
       /peer-dep@2.0.0:
         resolution: {integrity: sha512-f}
         dev: false
@@ -183,10 +200,14 @@ PNPM_V6 = textwrap.dedent("""\
 
       /transitive@2.0.0:
         resolution: {integrity: sha512-h}
+        dependencies:
+          ws-dep: 4.0.0
         dev: false
 
       /ws-dep@4.0.0:
         resolution: {integrity: sha512-i}
+        dependencies:
+          transitive: 2.0.0
         dev: false
     """)
 
@@ -224,9 +245,13 @@ YARN_V1 = textwrap.dedent("""\
       resolved "https://registry.yarnpkg.com/@scope/app-dep/-/app-dep-1.0.0.tgz"
       integrity sha512-a
       dependencies:
+        "@scope/inner" "^1.0.0"
         transitive "^2.0.0"
       optionalDependencies:
         opt-transitive "1.0.0"
+
+    "@scope/inner@^1.0.0", "@scope/inner@^1.0.1":
+      version "1.0.1"
 
     "aliased@npm:real-pkg@^3.0.0":
       version "3.1.0"
@@ -244,6 +269,8 @@ YARN_V1 = textwrap.dedent("""\
 
     transitive@^2.0.0, transitive@^2.0.0-rc.1:
       version "2.0.0"
+      dependencies:
+        "@scope/app-dep" "^1.0.0"
 
     ws-dep@4.0.0:
       version "4.0.0"
@@ -262,6 +289,7 @@ YARN_MANIFESTS = {
 }
 YARN_PROD = {
     "@scope/app-dep": ["1.0.0"],
+    "@scope/inner": ["1.0.1"],
     "opt-transitive": ["1.0.0"],
     "real-pkg": ["3.1.0"],
     "transitive": ["2.0.0"],
@@ -362,7 +390,7 @@ class AuditAdvisoriesTests(unittest.TestCase):
         result = self.run_audit()
         self.assert_exit(result, 0)
         self.assertEqual(self.requested(), PROD)
-        self.assertIn("auditing 7 production package versions from pnpm-lock.yaml", result.stderr)
+        self.assertIn("auditing 8 production package versions from pnpm-lock.yaml", result.stderr)
 
     def test_pnpm_v6_audits_the_production_graph(self):
         self.write({"pnpm-lock.yaml": PNPM_V6})
@@ -387,6 +415,18 @@ class AuditAdvisoriesTests(unittest.TestCase):
         self.assertEqual(self.requested(), YARN_PROD)
         self.assertIn("production package versions from yarn.lock", result.stderr)
 
+    def test_yarn_workspace_pattern_forms(self):
+        root = YARN_MANIFESTS["package.json"]
+        for workspaces in (["packages/ws", "packages/other"], {"packages": ["packages/*"]}):
+            with self.subTest(workspaces=workspaces):
+                self.registry.requests.clear()
+                self.write({"yarn.lock": YARN_V1, **YARN_MANIFESTS,
+                            "package.json": {**root, "workspaces": workspaces}})
+                result = self.run_audit()
+                self.assert_exit(result, 0)
+                self.assertNotIn("auditing every package", result.stderr)
+                self.assertEqual(self.requested(), YARN_PROD)
+
     def test_unresolved_graph_audits_every_lockfile_package(self):
         broken_pnpm = PNPM_V9.replace("version: 4.0.0", "version: 4.0.1")
         manifests = dict(YARN_MANIFESTS)
@@ -396,6 +436,17 @@ class AuditAdvisoriesTests(unittest.TestCase):
             ({"pnpm-lock.yaml": broken_pnpm}, ALL),
             ({"yarn.lock": YARN_V1, **manifests}, YARN_ALL),
             ({"yarn.lock": YARN_V1}, YARN_ALL),  # no package.json
+            (
+                {
+                    "yarn.lock": YARN_V1,
+                    **YARN_MANIFESTS,
+                    "package.json": {
+                        **YARN_MANIFESTS["package.json"],
+                        "workspaces": ["packages/ws", "packages/missing"],
+                    },
+                },
+                YARN_ALL,
+            ),
             (
                 {
                     "yarn.lock": YARN_V1,
@@ -540,25 +591,29 @@ class AuditAdvisoriesTests(unittest.TestCase):
         self.assertEqual(self.requested(), YARN_PROD)
 
     def test_concourse_wrapper_passes_level_and_repo_root(self):
+        # Concourse runs the vendored task by a path relative to the build dir
+        tasks = self.tmp / "pipeline-tasks/ci/vendor/tasks"
+        tasks.mkdir(parents=True)
+        shutil.copy(WRAPPER, tasks)
+        shutil.copy(SCRIPT, tasks)
         self.write({"pnpm-lock.yaml": PNPM_V9})
         self.registry.default = (200, {"ws-dep": [advisory("high")]}, False)
-        for level, code in (("high", 1), ("critical", 0)):
+        for level, code in ((None, 1), ("high", 1), ("critical", 0)):
             with self.subTest(level=level):
+                env = dict(os.environ, REPO_ROOT="repo", AUDIT_ADVISORIES_URL=self.registry.url)
+                env.pop("LEVEL", None)
+                if level:
+                    env["LEVEL"] = level
                 result = subprocess.run(
-                    ["bash", str(WRAPPER)],
+                    ["pipeline-tasks/ci/vendor/tasks/nodejs-audit.sh"],
                     cwd=self.tmp,
-                    env=dict(
-                        os.environ,
-                        REPO_ROOT="repo",
-                        LEVEL=level,
-                        AUDIT_ADVISORIES_URL=self.registry.url,
-                    ),
+                    env=env,
                     capture_output=True,
                     text=True,
                     timeout=60,
                 )
                 self.assert_exit(result, code)
-                self.assertIn(f"at level '{level}'", result.stderr)
+                self.assertIn(f"at level '{level or 'high'}'", result.stderr)
 
 
 if __name__ == "__main__":
