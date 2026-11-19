@@ -136,7 +136,7 @@ def negative_probe(client, host, command, expected, peer, env, home, run=None):
 def commands(profile, home):
     clients = {
         "git": (lambda host: ["git", "ls-remote", f"https://{host}/probe.git"],
-                ["git", "ls-remote", "https://github.com/blinkbitcoin/concourse-shared.git", "HEAD"]),
+                ["git", "ls-remote", "https://github.com/git/git.git", "HEAD"]),
     }
     if profile != "wincross":
         clients["gh"] = (lambda host: ["gh", "api", "--hostname", host, "/"],

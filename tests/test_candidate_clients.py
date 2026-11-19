@@ -187,6 +187,9 @@ class CandidateClientsTests(unittest.TestCase):
                 args = negative(CLIENTS.HOSTS[0])
                 self.assertTrue(any(CLIENTS.HOSTS[0] in item for item in args))
                 self.assertTrue(healthy)
+                # Healthy controls run without credentials, so they must not depend
+                # on the visibility of our own repositories (blink-wip#2155).
+                self.assertFalse(any("blinkbitcoin/" in item for item in healthy), healthy)
                 self.assertNotIn("--insecure", args)
                 self.assertNotIn("--push", args)
                 self.assertNotIn("--pr", args)
