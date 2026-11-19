@@ -439,6 +439,14 @@ class AuditAdvisoriesTests(unittest.TestCase):
             (
                 {
                     "yarn.lock": YARN_V1,
+                    "package.json": YARN_MANIFESTS["package.json"],
+                    "packages/ws/package.json": "{not json",
+                },
+                YARN_ALL,
+            ),
+            (
+                {
+                    "yarn.lock": YARN_V1,
                     **YARN_MANIFESTS,
                     "package.json": {
                         **YARN_MANIFESTS["package.json"],
