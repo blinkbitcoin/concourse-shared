@@ -77,8 +77,9 @@ Files whose names don't start with them are treated as common and synced to all.
 
 ### Docker hosts
 
-Jobs that need a Docker host pass a site to the Docker-host fragments, for
-example `run_on_nix_host(..., site="site1")`, `test_on_docker_host(...,
-site="site1")` and `docker_host_pool(site="site1")`. Without `site` the
-fragments still render the GCP pool, until every consumer has migrated. See
+Jobs that need a Docker host use the Docker-host fragments
+(`run_on_nix_host`, `test_on_docker_host`, `docker_host_pool`), which run on
+the site1 SSH Docker hosts by default. `site="site2"` and so on selects another
+site; `site="gcp"` renders the legacy GCP pool for rollback until those hosts
+are retired. See
 [docs/ssh-docker-hosts.md](docs/ssh-docker-hosts.md).

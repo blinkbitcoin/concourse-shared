@@ -17,28 +17,29 @@ copy; it is maintained here so every consumer can vendor it.
 
 ## Fragments
 
-The fragments keep their names and take an optional `site`:
+The fragments keep their names and take an optional `site`, which defaults to
+`site1`:
 
-| Without `site` (GCP, renders as before) | With `site` |
+| Default (`site="site1"`) | Legacy GCP (`site="gcp"`, rollback only) |
 | --- | --- |
-| `docker_host_pool()` | `docker_host_pool(site="site1")` |
-| `run_on_nix_host(name, cmd, additional_params={})` | `run_on_nix_host(name, cmd, additional_params={}, site="site1", workload_timeout_minutes=12)` |
-| `test_on_docker_host(container, additional_params={})` | `test_on_docker_host(container, additional_params={}, site="site1", workload_timeout_minutes=20)` |
+| `docker_host_pool()` | `docker_host_pool(site="gcp")` |
+| `run_on_nix_host(name, cmd, additional_params={}, workload_timeout_minutes=12)` | `run_on_nix_host(name, cmd, additional_params={}, site="gcp")` |
+| `test_on_docker_host(container, additional_params={}, workload_timeout_minutes=20)` | `test_on_docker_host(container, additional_params={}, site="gcp")` |
 
-`site` must look like `site1`; anything else fails the render.
-`workload_timeout_minutes` applies only with `site` and fails the render
-without it.
+`site` must be `gcp` or look like `site1`; anything else fails the render.
+`workload_timeout_minutes` applies only to SSH sites and fails the render with
+`site="gcp"`, whose tasks keep their fixed timeouts.
 
-A site's pool resource is named `docker-host-<site>`, so a pipeline can use the
-GCP pool and one or more sites at once while it migrates job by job. The tasks
-always read the claim from an input named `docker-host`; the fragment maps the
-site's resource to it. The GCP path stays available until every consumer has
-moved and is removed with the GCP hosts; `site` becomes required then.
+A site's pool resource is named `docker-host-<site>` (the GCP one stays
+`docker-host`), so a pipeline can use several pools at once. The tasks always
+read the claim from an input named `docker-host`; the fragment maps the site's
+resource to it. `site="gcp"` renders the GCP pool and tasks exactly as before
+and is removed with the GCP hosts.
 
 Adding a site needs no fragment change: admit its hosts to a new
 `docker-hosts-<site>` pool and pass that site name.
 
-What a job with `site` does:
+What a site job does:
 
 - Fetches `repo` and `pipeline-tasks` first, then claims one host and runs
   once (`attempts: 1`) on an untagged Linux worker. Fetching first means a
@@ -112,39 +113,40 @@ quarantined: no other job can take it. Before releasing it:
 
 ## Migrating a consumer
 
-One pull request per consumer repository, so each can be reverted on its own.
+A pipeline that calls the shared fragments without `site` moves to `site1`
+when it vendors a `concourse-shared` ref with this default: bump
+`ci/vendir.yml` and run `vendir sync`, or merge the propagated
+`bump-shared-tasks` PR. Passing `site="site1"` explicitly renders the same jobs.
 
-1. Vendor a `concourse-shared` ref that contains these fragments: bump
-   `ci/vendir.yml` and run `vendir sync` (or merge the propagated
-   `bump-shared-tasks` PR).
-2. In `ci/pipeline.yml`, add `site` to the fragment calls and add the site's
-   pool resource:
+1. Re-vendor as above. Example pipeline:
 
    ```yaml
    #@ load("vendor/pipeline-fragments.lib.yml", "docker_host_pool", "run_on_nix_host")
    jobs:
-   - #@ run_on_nix_host("integration-tests", "make test-in-ci", {"RAIN_API_KEY": data.values.rain_api_key}, site="site1")
+   - #@ run_on_nix_host("integration-tests", "make test-in-ci", {"RAIN_API_KEY": data.values.rain_api_key})
    resources:
-   - #@ docker_host_pool(site="site1")
+   - #@ docker_host_pool()
    ```
 
-   Repositories with their own copy of `run_on_nix_host` (stablesats-rs,
-   blink-fiat, blink-kyc, blink-routing) delete it and use the shared fragment.
-   Pass any variable their copy exported on the host as `additional_params`
-   (blink-routing exports `DOCKER_API_VERSION`; check that the site's Docker
-   daemon still accepts that API version before keeping it).
+2. Repositories with their own copy of `run_on_nix_host` must delete it and
+   use the shared fragment first: with the new default, `docker_host_pool()`
+   renders `docker-host-site1`, so a local job that still puts `docker-host`
+   no longer validates.
+   Pass any variable their copy exported on the host as `additional_params`,
+   except a `DOCKER_API_VERSION` pin below 1.44: the site hosts' Docker daemon
+   rejects such clients (blink-routing's `1.43` pin was dropped for this).
    Set `workload_timeout_minutes` if a job needs more than the default.
 3. Render with `ytt -f ci` and compare against the live pipeline
    (`fly get-pipeline`). Only the migrated jobs and the new resource should
    change.
 4. Repipe, run each migrated job once, and confirm the host was released
    (`docker-hosts-<site>/unclaimed` in `concourse-locks`).
-5. When no job uses it, remove the `docker_host_pool()` call without `site`
-   from the pipeline.
+5. When no job uses it, remove any `docker_host_pool(site="gcp")` call.
 
-Rollback: revert the consumer pull request and repipe. Check for running
-builds and held claims first; a held site claim must be released through the
-procedure above, not by switching pools.
+Rollback: pass `site="gcp"` to the affected job and add
+`docker_host_pool(site="gcp")`, or revert the consumer pull request, then
+repipe. Check for running builds and held claims first; a held site claim must
+be released through the procedure above, not by switching pools.
 
 ## Credentials
 
