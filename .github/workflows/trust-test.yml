@@ -8,13 +8,13 @@ on:
       - 'ci/**'
       - 'tests/test_pipeline.py'
       - 'tests/test_bump_shared_files.py'
+      - 'tests/test_audit_advisories.py'
       - 'vendir.tmpl.yml'
       - 'shared/**'
       - 'tests/test_trust.py'
       - 'tests/test_registry_proof.py'
       - 'tests/test_prepare_image_tags.py'
       - 'tests/test_orphan_cleanup.py'
-      - 'tests/test_nodejs_audit.py'
       - 'tests/smoke-cleanup-runtime.sh'
 permissions:
   contents: read

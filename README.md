@@ -45,16 +45,17 @@ Files whose names don't start with them are treated as common and synced to all.
 #### nodejs
 
 - GH Actions:
-  - only supports pnpm, no more yarn
-  - Check Code (`pnpm code:check` after `pnpm install`)
-  - Audit (`pnpm audit --prod --audit-level=high` after `pnpm install --frozen-lockfile`)
+  - Check Code (`pnpm code:check` after `pnpm install`, pnpm only)
+  - Audit (`node ci/vendor/tasks/nodejs-audit-advisories.js --level high`, see below)
 
 - Concourse CI:
   - supports yarn and pnpm
   - Helpers (`unpack_deps` for caching node_modules)
   - Install Deps (autodetects pckMgr and then `yarn install` or `pnpm install`)
   - Check Code (autodetects pckMgr and then  `yarn code:check` or `pnpm code:check`)
-  - Audit (autodetects pckMgr and then `yarn audit --groups dependencies --level high` or `pnpm audit --prod --audit-level=high`)
+  - Audit (`nodejs-audit-advisories.js --level ${LEVEL}`, default `high`)
+
+`nodejs-audit-advisories.js` replaces `yarn audit` and `pnpm audit`, whose legacy registry endpoints npmjs.org retired on 2026-07-15. It reads the production dependency graph (`dependencies` and `optionalDependencies` of the project and its workspaces) from `yarn.lock` (v1) or `pnpm-lock.yaml` (lockfileVersion 6 or 9), with `yarn.lock` taking precedence, and posts it to the npm bulk advisory endpoint. When the graph cannot be resolved completely it audits every package in the lockfile instead. It exits 1 on advisories at or above the level and 2 when the audit cannot run (unsupported lockfile, registry error or unreadable response), so a skipped audit never passes.
 
 #### rust
 
