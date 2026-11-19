@@ -597,16 +597,16 @@ source:
   private_key: #@ data.values.github_private_key
 #@ end
 
-#! Docker hosts. Without site, docker_host_pool, run_on_nix_host and
-#! test_on_docker_host render the GCP pool and tasks as before. With
-#! site="site1" they use that site's SSH Docker hosts instead; see
-#! docs/ssh-docker-hosts.md. Site jobs run once per claim on untagged workers
-#! and release the host only after a confirmed remote cleanup; otherwise the
-#! claim is kept as quarantine.
+#! Docker hosts. docker_host_pool, run_on_nix_host and test_on_docker_host use
+#! the site1 SSH Docker hosts unless another site is given (site="site2", ...);
+#! see docs/ssh-docker-hosts.md. Site jobs run once per claim on untagged
+#! workers and release the host only after a confirmed remote cleanup;
+#! otherwise the claim is kept as quarantine. site="gcp" renders the legacy GCP
+#! pool and tasks unchanged, for rollback until the GCP hosts are retired.
 
 #@ def check_docker_host_site(site):
 #@ if type(site) != "string" or not regexp.match("^site[1-9][0-9]*$", site):
-#@   assert.fail("site must look like site1, got: " + str(site))
+#@   assert.fail("site must be \"gcp\" or look like site1, got: " + str(site))
 #@ end
 #@ end
 
@@ -620,8 +620,8 @@ source:
   private_key: #@ data.values.github_private_key
 #@ end
 
-#@ def docker_host_pool(site=None):
-#@ if site == None:
+#@ def docker_host_pool(site="site1"):
+#@ if site == "gcp":
 #@   return gcp_docker_host_pool()
 #@ end
 #@ check_docker_host_site(site)
@@ -709,11 +709,11 @@ on_failure: #@ on_failure
 #@ end
 
 #! workload_timeout_minutes applies to site hosts only (default 12); the GCP
-#! task keeps its fixed timeout, so passing it without site fails the render.
-#@ def run_on_nix_host(name, cmd, additional_params={}, site=None, workload_timeout_minutes=None):
-#@ if site == None:
+#! task keeps its fixed timeout, so passing it with site="gcp" fails the render.
+#@ def run_on_nix_host(name, cmd, additional_params={}, site="site1", workload_timeout_minutes=None):
+#@ if site == "gcp":
 #@   if workload_timeout_minutes != None:
-#@     assert.fail("workload_timeout_minutes requires site")
+#@     assert.fail("workload_timeout_minutes requires an SSH site, not gcp")
 #@   end
 #@   return gcp_run_on_nix_host(name, cmd, additional_params)
 #@ end
@@ -729,10 +729,10 @@ on_failure: #@ on_failure
 #@ end
 
 #! As run_on_nix_host; the site default for workload_timeout_minutes is 20.
-#@ def test_on_docker_host(container, additional_params={}, site=None, workload_timeout_minutes=None):
-#@ if site == None:
+#@ def test_on_docker_host(container, additional_params={}, site="site1", workload_timeout_minutes=None):
+#@ if site == "gcp":
 #@   if workload_timeout_minutes != None:
-#@     assert.fail("workload_timeout_minutes requires site")
+#@     assert.fail("workload_timeout_minutes requires an SSH site, not gcp")
 #@   end
 #@   return gcp_test_on_docker_host(container, additional_params)
 #@ end
