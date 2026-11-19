@@ -74,3 +74,11 @@ Files whose names don't start with them are treated as common and synced to all.
 
 - Concourse CI:
   - Open Charts PR
+
+### Docker hosts
+
+Jobs that need a Docker host pass a site to the Docker-host fragments, for
+example `run_on_nix_host(..., site="site1")`, `test_on_docker_host(...,
+site="site1")` and `docker_host_pool(site="site1")`. Without `site` the
+fragments still render the GCP pool, until every consumer has migrated. See
+[docs/ssh-docker-hosts.md](docs/ssh-docker-hosts.md).
