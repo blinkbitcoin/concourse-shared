@@ -11,4 +11,4 @@ TASKS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 pushd ${REPO_ROOT}
 
-exec node "${TASKS_DIR}/audit-advisories.js" --level "${LEVEL}"
+exec node "${TASKS_DIR}/nodejs-audit-advisories.js" --level "${LEVEL}"

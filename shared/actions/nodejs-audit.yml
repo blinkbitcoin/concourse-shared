@@ -17,4 +17,4 @@ jobs:
         with:
           node-version: 24
       - name: Run audit
-        run: node ci/vendor/tasks/audit-advisories.js --level high
+        run: node ci/vendor/tasks/nodejs-audit-advisories.js --level high

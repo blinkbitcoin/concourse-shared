@@ -8,6 +8,7 @@ on:
       - 'ci/**'
       - 'tests/test_pipeline.py'
       - 'tests/test_bump_shared_files.py'
+      - 'tests/test_audit_advisories.py'
       - 'vendir.tmpl.yml'
       - 'shared/**'
       - 'tests/test_trust.py'
