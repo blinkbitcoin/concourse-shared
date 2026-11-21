@@ -22,12 +22,33 @@ done
 
 pushd ci
 
+# vendir fetches concourse-shared over HTTPS, which needs credentials once the
+# repository is private. Mint a short-lived GitHub App installation token and hand
+# it to git as an extra header through GIT_CONFIG_* on the vendir command only:
+# nothing is written to disk, the committed ci/vendir.yml stays credential-free,
+# and git does not print extra headers.
+shared_urls=$(sed -n 's/^ *url: *//p' vendir.yml | sort -u)
+if [[ $(printf '%s\n' "$shared_urls" | wc -l) -ne 1 || ! $shared_urls =~ ^https://github\.com/ ]]; then
+  echo "Error: expected one github.com HTTPS url in vendir.yml, found: ${shared_urls}" >&2
+  exit 1
+fi
+gh_token=$(ghtoken generate -b "${GH_APP_PRIVATE_KEY}" -i "${GH_APP_ID}" | jq -r '.token')
+if [[ -z $gh_token || $gh_token == null ]]; then
+  echo "Error: could not mint a GitHub App token for the vendir fetch" >&2
+  exit 1
+fi
+auth_header="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$gh_token" | base64 | tr -d '\n')"
+unset gh_token
+
 # Run vendir sync and capture stderr
 # Only ignore errors about empty directories, fail on other errors
 # Could well be that we don't have any files to sync
 stderr_file=$(mktemp)
 echo "    --> Running vendir sync"
-if ! vendir sync 2>"$stderr_file"; then
+if ! GIT_CONFIG_COUNT=1 \
+  GIT_CONFIG_KEY_0="http.${shared_urls}.extraheader" \
+  GIT_CONFIG_VALUE_0="$auth_header" \
+  vendir sync 2>"$stderr_file"; then
   stderr_content=$(cat "$stderr_file")
   if echo "$stderr_content" | grep -q "Expected to find at least one file within directory"; then
     echo "    --> Warning: vendir sync found empty directories (ignoring)" >&2
@@ -40,6 +61,7 @@ if ! vendir sync 2>"$stderr_file"; then
   fi
 fi
 rm -f "$stderr_file"
+unset auth_header
 
 pushd vendor/tasks
 
