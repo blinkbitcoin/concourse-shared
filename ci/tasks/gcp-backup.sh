@@ -11,15 +11,32 @@ EOF
 
 gcloud auth activate-service-account --key-file ${CI_ROOT}/gcloud-creds.json
 
-export GH_TOKEN="$(gh-token generate -b "${GH_APP_PRIVATE_KEY}" -i "${GH_APP_ID}" | jq -r '.token')"
+# GitHub App installation tokens expire after one hour, and cloning the whole
+# org can take longer than that, so mint a fresh token before every API call.
+refresh_gh_token() {
+  local token
+  token="$(gh-token generate -b "${GH_APP_PRIVATE_KEY}" -i "${GH_APP_ID}" | jq -r '.token')"
+  if [[ -z "${token}" || "${token}" == "null" ]]; then
+    echo "    --> failed to generate a GitHub App installation token" >&2
+    return 1
+  fi
+  export GH_TOKEN="${token}"
+}
 
+refresh_gh_token
 # no API keys up to 4,000 private repos.
-repo_count=$(gh repo list ${ORG_NAME} --limit 4000 | wc -l)
+repos="$(gh repo list ${ORG_NAME} --limit 4000 --json nameWithOwner --jq '.[].nameWithOwner')"
+repo_count=$(grep -c . <<< "${repos}" || true)
+if [[ "${repo_count}" -eq 0 ]]; then
+  echo "    --> no repos listed for ${ORG_NAME}, refusing to upload an empty backup" >&2
+  exit 1
+fi
 echo "    --> cloning ${repo_count} repos from ${ORG_NAME}"
-gh repo list ${ORG_NAME} --limit 4000 | while read -r repo _; do
+while read -r repo; do
+  refresh_gh_token
   echo "    --> cloning ${repo}"
-  gh repo clone "$repo" "$repo"
-done
+  gh repo clone "$repo" "$repo" < /dev/null
+done <<< "${repos}"
 
 # compress the repo in a tarball
 timestamp=$(date +%Y%m%d%H%M%S)
