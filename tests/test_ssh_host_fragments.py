@@ -14,16 +14,16 @@ FRAGMENTS = ROOT / "shared/ci/pipeline-fragments.lib.yml"
 CONSUMER = '''#@ load("@ytt:data", "data")
 #@ load("vendor/pipeline-fragments.lib.yml", "docker_host_pool", "run_on_nix_host", "test_on_docker_host")
 jobs:
-- #@ run_on_nix_host("integration-tests", "make test-in-ci", {"RAIN_API_KEY": "((rain.key))"}, site="site1")
+- #@ run_on_nix_host("integration-tests", "make test-in-ci", {"RAIN_API_KEY": "((rain.key))"})
 - #@ run_on_nix_host("e2e-tests", "make e2e", site="site1", workload_timeout_minutes=40)
-- #@ test_on_docker_host("compose-tests", site="site1")
+- #@ test_on_docker_host("compose-tests")
 - #@ run_on_nix_host("other-site", "make other", site="site2")
-- #@ run_on_nix_host("legacy-nix", "make legacy", {"LEGACY_KEY": "((legacy.key))"})
-- #@ test_on_docker_host("legacy-compose")
+- #@ run_on_nix_host("legacy-nix", "make legacy", {"LEGACY_KEY": "((legacy.key))"}, site="gcp")
+- #@ test_on_docker_host("legacy-compose", site="gcp")
 resources:
-- #@ docker_host_pool(site="site1")
-- #@ docker_host_pool(site="site2")
 - #@ docker_host_pool()
+- #@ docker_host_pool(site="site2")
+- #@ docker_host_pool(site="gcp")
 '''
 
 VALUES = '''#@data/values
@@ -71,13 +71,13 @@ class Fragments(unittest.TestCase):
         self.assertEqual(release, {"put": "docker-host-site2", "params": {"release": "docker-host-site2"}})
 
     def test_invalid_site_fails_render(self):
-        for value in ['"gcp"', '"site"', '"site01"', '"site1/x"', '"Site1"', "1", '""']:
+        for value in ['"GCP"', '"site"', '"site01"', '"site1/x"', '"Site1"', "1", '""', "None"]:
             with self.subTest(value=value):
                 for call in ['run_on_nix_host("other-site", "make other", site="site2")',
                              'docker_host_pool(site="site2")']:
                     result = self.render(CONSUMER.replace(call, call.replace('"site2"', value)))
                     self.assertNotEqual(result.returncode, 0)
-                    self.assertIn("site must look like site1", result.stderr)
+                    self.assertIn('site must be "gcp" or look like site1', result.stderr)
 
     def test_site_jobs_run_once_untagged_and_release_only_after_cleanup_receipt(self):
         jobs, _ = self.pipeline()
@@ -120,13 +120,13 @@ class Fragments(unittest.TestCase):
         self.assertIn("on_failure", jobs["compose-tests"])
         self.assertNotIn("on_failure", jobs["integration-tests"])
 
-    def test_workload_timeout_without_site_fails_render(self):
+    def test_workload_timeout_with_gcp_fails_render(self):
         for call in ['run_on_nix_host("legacy-nix", "make legacy", {"LEGACY_KEY": "((legacy.key))"}',
                      'test_on_docker_host("legacy-compose"']:
             with self.subTest(call=call):
                 result = self.render(CONSUMER.replace(call, call + ", workload_timeout_minutes=30"))
                 self.assertNotEqual(result.returncode, 0)
-                self.assertIn("workload_timeout_minutes requires site", result.stderr)
+                self.assertIn("workload_timeout_minutes requires an SSH site, not gcp", result.stderr)
 
     def test_legacy_gcp_fragments_are_unchanged(self):
         jobs, resources = self.pipeline()
@@ -149,17 +149,34 @@ class Fragments(unittest.TestCase):
                 result = self.render(pipeline)
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn("additional_params key", result.stderr)
-                pipeline = CONSUMER.replace('test_on_docker_host("compose-tests", site="site1")',
-                                            'test_on_docker_host("compose-tests", {"%s": "x"}, site="site1")' % key)
+                pipeline = CONSUMER.replace('test_on_docker_host("compose-tests")',
+                                            'test_on_docker_host("compose-tests", {"%s": "x"})' % key)
                 result = self.render(pipeline)
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn("additional_params key", result.stderr)
         # The compose fragment sets JEST_TIMEOUT; the nix fragment does not.
-        pipeline = CONSUMER.replace('test_on_docker_host("compose-tests", site="site1")',
-                                    'test_on_docker_host("compose-tests", {"JEST_TIMEOUT": "1"}, site="site1")')
+        pipeline = CONSUMER.replace('test_on_docker_host("compose-tests")',
+                                    'test_on_docker_host("compose-tests", {"JEST_TIMEOUT": "1"})')
         self.assertIn("reserved additional_params key: JEST_TIMEOUT", self.render(pipeline).stderr)
         pipeline = CONSUMER.replace('{"RAIN_API_KEY": "((rain.key))"}', '{"JEST_TIMEOUT": "1"}')
         self.assertEqual(self.render(pipeline).returncode, 0)
+
+    def test_default_site_is_site1(self):
+        # Consumers that pass no site (and bump PRs that only re-vendor) move to
+        # site1; the render is identical to naming the site explicitly.
+        explicit_pipeline = CONSUMER
+        for old, new in [('{"RAIN_API_KEY": "((rain.key))"})', '{"RAIN_API_KEY": "((rain.key))"}, site="site1")'),
+                         ('test_on_docker_host("compose-tests")', 'test_on_docker_host("compose-tests", site="site1")'),
+                         ("- #@ docker_host_pool()\n", '- #@ docker_host_pool(site="site1")\n')]:
+            self.assertEqual(explicit_pipeline.count(old), 1, old)
+            explicit_pipeline = explicit_pipeline.replace(old, new)
+        default, explicit = self.render(CONSUMER), self.render(explicit_pipeline)
+        self.assertEqual(default.returncode, 0, default.stderr)
+        self.assertEqual(explicit.returncode, 0, explicit.stderr)
+        self.assertEqual(json.loads(default.stdout), json.loads(explicit.stdout))
+        jobs, resources = self.pipeline()
+        self.assertEqual(jobs["integration-tests"]["plan"][1], {"put": "docker-host-site1", "params": {"acquire": True}})
+        self.assertEqual(resources["docker-host-site1"]["source"]["pool"], "docker-hosts-site1")
 
     def test_invalid_workload_timeout_fails_render(self):
         for value in ["0", "1000", '"12"']:
